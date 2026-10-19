@@ -1,0 +1,3 @@
+{$AWG_SYNC_DOMAIN} {
+    reverse_proxy awg-sync:8787
+}

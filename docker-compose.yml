@@ -1,0 +1,22 @@
+services:
+  awg-sync:
+    image: awg-sync:latest
+    build:
+      context: ./node
+      dockerfile: Dockerfile
+    container_name: awg-sync
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    ports:
+      - "127.0.0.1:8787:8787"
+    environment:
+      - PORT=8787
+      - CONFIG_PATH=/app/config/config.yaml
+      - BASIC_AUTH_USER=${BASIC_AUTH_USER:?Set BASIC_AUTH_USER}
+      - BASIC_AUTH_PASS=${BASIC_AUTH_PASS:?Set BASIC_AUTH_PASS}
+    volumes:
+      - ./config:/app/config

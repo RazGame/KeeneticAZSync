@@ -1,0 +1,18 @@
+# Standalone HTTPS, combined with ../docker-compose.yml; see docs/server.md.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      AWG_SYNC_DOMAIN: ${AWG_SYNC_DOMAIN:?Set AWG_SYNC_DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

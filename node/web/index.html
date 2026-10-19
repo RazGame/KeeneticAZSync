@@ -1,0 +1,2201 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keenetic AZ Sync</title>
+<script id="sidebarBoot">
+// Apply the first-paint state before styles, fonts and application scripts load.
+(() => {
+  let collapsed = matchMedia('(max-width:768px)').matches;
+  if (!collapsed) {
+    try { collapsed = localStorage.getItem('sidebar_collapsed') === 'true'; } catch {}
+  }
+  document.documentElement.dataset.sidebarCollapsed = String(collapsed);
+})();
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #eef2f5;
+    --bg-header: #ffffff;
+    --bg-sidebar: #ffffff;
+    --sidebar-border: #d2dbe3;
+    --panel: #ffffff;
+    --line: #d2dbe3;
+    --text: #1a202c;
+    --muted: #6f8294;
+    --accent: #0073e6;
+    --accent-hover: #0059b3;
+    --accent-light: #e5f1ff;
+    --green: #107c41;
+    --green-bg: rgba(16, 124, 65, 0.1);
+    --red: #a80000;
+    --red-bg: rgba(168, 0, 0, 0.1);
+    --yellow: #b25900;
+    --yellow-bg: rgba(178, 89, 0, 0.1);
+    --info: #0073e6;
+    --info-bg: rgba(0, 115, 230, 0.1);
+    --field: #ffffff;
+    --field-border: #ced4da;
+    --sidebar-active-bg: #eef2f5;
+  }
+  * { box-sizing: border-box; }
+  html { height: 100%; overflow: hidden; }
+  body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 "Open Sans", -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .header {
+    height: 60px;
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+  }
+  .header .logo {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .header .logo span {
+    color: #1a202c;
+    font-weight: 300;
+  }
+  .header .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    display: inline-block;
+    box-shadow: 0 0 0 3px rgba(16, 124, 65, 0.2);
+  }
+
+  /* Единственный размер экрана для всего каркаса. Отступ находится внутри
+     заданной высоты: внешнего скролла за фиксированной шапкой быть не должно. */
+  #appContainer {
+    height: 100vh;
+    height: 100dvh;
+    padding-top: 60px;
+    overflow: hidden;
+  }
+  .layout {
+    position: relative;
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .rail {
+    width: 220px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--sidebar-border);
+    display: flex;
+    flex-direction: column;
+    padding: 16px 0 0;
+    height: 100%;
+    min-height: 0;
+    flex: 0 0 auto;
+    transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+  }
+  html[data-sidebar-collapsed="true"] .rail {
+    width: 68px;
+  }
+  .rail .nav {
+    width: 100%;
+    background: transparent;
+    border: 0;
+    color: var(--text);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: left;
+    transition: background 0.15s, color 0.15s;
+    border-left: 3px solid transparent;
+  }
+  .rail .nav svg {
+    width: 20px;
+    height: 20px;
+    stroke: var(--muted);
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex-shrink: 0;
+    transition: stroke 0.15s;
+  }
+  .rail .nav span {
+    white-space: nowrap;
+    opacity: 1;
+    transition: opacity 0.15s;
+  }
+  html[data-sidebar-collapsed="true"] .rail .nav span {
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
+  }
+  .rail .nav:hover {
+    background: #f3f6f9;
+  }
+  .rail .nav:hover svg {
+    stroke: var(--text);
+  }
+  .rail .nav.active {
+    background: var(--sidebar-active-bg);
+    color: var(--accent);
+    border-left-color: var(--accent);
+  }
+  .rail .nav.active svg {
+    stroke: var(--accent);
+  }
+
+  .sidebar-toggle {
+    margin-top: auto;
+    width: 100%;
+    background: transparent;
+    border: 0;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    border-top: 1px solid var(--line);
+    transition: background 0.15s;
+    text-align: left;
+  }
+  .sidebar-toggle:hover {
+    background: #f3f6f9;
+    color: var(--text);
+  }
+  .sidebar-toggle svg {
+    width: 20px;
+    height: 20px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex-shrink: 0;
+    transition: transform 0.2s;
+  }
+  html[data-sidebar-collapsed="true"] .rail .sidebar-toggle svg {
+    transform: rotate(180deg);
+  }
+  html[data-sidebar-collapsed="true"] .rail .sidebar-toggle span {
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
+  }
+  html:not([data-sidebar-ready]) .rail,
+  html:not([data-sidebar-ready]) .rail .nav span,
+  html:not([data-sidebar-ready]) .sidebar-toggle span,
+  html:not([data-sidebar-ready]) .sidebar-toggle svg { transition: none; }
+
+  .content {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* Прокручивается только эта обёртка. Панель сохранения лежит рядом с ней,
+     поэтому всегда видна и не требует скролла до конца страницы. */
+  .content-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    display: flex;
+    flex-direction: column;
+    padding: 24px 24px 0;
+  }
+  .pagebar {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-bottom: 20px;
+    margin-bottom: 16px;
+  }
+  .pagebar .title {
+    font-weight: 800;
+    font-size: 24px;
+    color: var(--text);
+  }
+  .pagebar .sub {
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 400;
+  }
+  main {
+    width: 100%;
+    margin: 0;
+    padding-bottom: 24px;
+    /* Забирает свободную высоту, чтобы панель сохранения уходила вниз экрана
+       даже когда контента мало. */
+    flex: 1 0 auto;
+  }
+  h3 {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin: 24px 0 12px;
+    font-weight: 700;
+  }
+  .section { display: none; }
+  .section.show { display: block; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+  .panel.cred-block {
+    padding: 14px 18px;
+    margin-bottom: 12px;
+  }
+
+  button {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 8px 16px;
+    font-weight: 700;
+    cursor: pointer;
+    background: #ffffff;
+    color: var(--text);
+    font-size: 13px;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  button:hover {
+    background: #f5f7f9;
+    border-color: #b2c4d4;
+  }
+  button:disabled {
+    opacity: .5;
+    cursor: default;
+    background: #ffffff !important;
+    border-color: var(--line) !important;
+    color: var(--muted) !important;
+  }
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #ffffff;
+  }
+  button.primary:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+  button.danger {
+    background: #ffffff;
+    border-color: #ffccd0;
+    color: #cc0011;
+  }
+  button.danger:hover {
+    background: #fff5f5;
+    border-color: #ff999f;
+  }
+  button.sm {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  input, select, textarea {
+    background: var(--field);
+    border: 1px solid var(--field-border);
+    border-radius: 4px;
+    color: var(--text);
+    padding: 8px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: 0;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(0, 115, 230, 0.15);
+  }
+  textarea {
+    width: 100%;
+    font-family: Consolas, Monaco, monospace;
+    font-size: 13px;
+  }
+  label.fld {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .toolbar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .spacer { flex: 1; }
+  .muted { color: var(--muted); font-size: 13px; }
+
+  .sw {
+    position: relative;
+    display: inline-block;
+    width: 42px;
+    height: 22px;
+    flex: 0 0 auto;
+  }
+  .sw input { opacity: 0; width: 0; height: 0; }
+  .sw .sl {
+    position: absolute;
+    inset: 0;
+    background: #ced4da;
+    border-radius: 999px;
+    transition: .2s;
+    cursor: pointer;
+  }
+  .sw .sl:before {
+    content: "";
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    left: 3px;
+    top: 3px;
+    background: #ffffff;
+    border-radius: 50%;
+    transition: .2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  }
+  .sw input:checked + .sl { background: var(--accent); }
+  .sw input:checked + .sl:before { transform: translateX(20px); }
+
+  .opt {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .opt:last-child {
+    border-bottom: 0;
+  }
+  .opt .txt b {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .opt .txt .h {
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 4px;
+    line-height: 1.45;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    transition: border-color 0.15s;
+  }
+  .card:hover {
+    border-color: #b2c4d4;
+  }
+  .card .top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .card .name { font-weight: 800; font-size: 16px; color: var(--text); }
+  .card .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .card .sub b { color: var(--text); font-weight: 600; }
+  .card .btns { margin-left: auto; display: flex; gap: 8px; }
+
+  .router-group {
+    margin: 18px 0 24px;
+  }
+  .router-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 10px;
+    padding: 0 2px;
+    color: var(--text);
+  }
+  .router-head .router-name {
+    font-size: 13px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .router-head .router-count {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .router-head .router-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+  }
+
+  .result {
+    margin-top: 16px;
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+    font-size: 14px;
+    display: none;
+  }
+  .result.show { display: block; }
+  .pill {
+    display: inline-block;
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .pill.ok { background: var(--green-bg); color: var(--green); }
+  .pill.warn { background: var(--yellow-bg); color: var(--yellow); }
+  .pill.err { background: var(--red-bg); color: var(--red); }
+  .pill.info { background: var(--info-bg); color: var(--info); }
+  
+  .meta { color: var(--muted); font-size: 13px; margin: 8px 0; }
+  .grp {
+    margin: 12px 0;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .grp .h {
+    font-weight: 700;
+    font-size: 12px;
+    padding: 8px 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--line);
+  }
+  .grp.add { border-color: #c3e6cb; }
+  .grp.add .h { background: #e2f0d9; color: #155724; }
+  .grp.del { border-color: #f5c6cb; }
+  .grp.del .h { background: #f8d7da; color: #721c24; }
+  .grp.par { border-color: #bee5eb; }
+  .grp.par .h { background: #d1ecf1; color: #0c5460; }
+  
+  .items {
+    font-family: Consolas, Monaco, monospace;
+    font-size: 12px;
+    color: #2c3e50;
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: #fafbfc;
+    padding: 10px 12px;
+    margin: 0;
+  }
+  .items .more { color: #5b7795; }
+  
+  .restart {
+    color: var(--yellow);
+    background: var(--yellow-bg);
+    border: 1px solid #ffeeba;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 10px;
+  }
+  .spin {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(0, 115, 230, 0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: s .7s linear infinite;
+    vertical-align: -2px;
+    margin-right: 6px;
+  }
+  @keyframes s { to { transform: rotate(360deg); } }
+  .err-text { color: var(--red); font-weight: 600; }
+  
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left;
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 700;
+    padding: 10px 12px;
+    border-bottom: 2px solid var(--line);
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    background: #f8f9fa;
+  }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td input, td select { width: 100%; }
+  tr:hover td { background: #fcfdfe; }
+
+  /* Custom mappings dropdown styles */
+  .m-select-wrapper {
+    display: flex;
+    gap: 6px;
+    align-items: stretch;
+    width: 100%;
+  }
+  .m-select-wrapper select,
+  .m-select-wrapper input {
+    flex: 1;
+    min-width: 0;
+  }
+  .m-select-wrapper button {
+    padding: 0 12px;
+    flex-shrink: 0;
+  }
+
+  .mappings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .mapping-card {
+    background: #ffffff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 18px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+  }
+  .mapping-card:hover {
+    border-color: #b2c4d4;
+  }
+  .m-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 8px;
+    gap: 12px;
+  }
+  .m-card-header input.m-name {
+    flex: 1;
+    font-weight: 700;
+    font-size: 15px;
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 4px 8px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .m-card-header input.m-name:hover {
+    border-color: var(--line);
+    background: #f8f9fa;
+  }
+  .m-card-header input.m-name:focus {
+    border-color: var(--accent);
+    background: #ffffff;
+    outline: 0;
+  }
+  .m-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .m-card-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 20px;
+  }
+  @media(max-width:768px) {
+    .m-card-body {
+      grid-template-columns: 1fr;
+    }
+  }
+  .m-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .m-field label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .credhead {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 6px;
+  }
+  .credhead input {
+    flex: 1;
+    font-weight: 700;
+    font-size: 16px;
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    color: var(--text);
+  }
+  .credhead input:hover {
+    border-color: var(--line);
+    background: #f8f9fa;
+  }
+  .credhead input:focus {
+    outline: 0;
+    border-color: var(--accent);
+    background: #ffffff;
+    box-shadow: 0 0 0 3px rgba(0, 115, 230, 0.15);
+  }
+
+  .panel-row-grid {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    width: 100%;
+  }
+  .panel-row-grid > div {
+    flex: 1;
+    min-width: 0;
+  }
+  /* Ширины задаём классами, а не позицией: порядок полей меняется от типа блока. */
+  .panel-row-grid > div.grid-wide {
+    flex: 2.2;
+  }
+  .panel-row-grid > div.grid-type {
+    flex: 0 0 200px;
+  }
+  /* Поля должны занимать свою ячейку целиком, иначе длинный URL обрезается
+     независимо от того, сколько места у ячейки. */
+  .panel-row-grid > div > input,
+  .panel-row-grid > div > select,
+  .panel-row-grid > div > textarea {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  /* Селектор с элементом специфичнее одного класса, поэтому кнопку удаления
+     фиксируем тем же весом — иначе она растягивается наравне с полями. */
+  .panel-row-grid > div.conn-del-cell {
+    flex: 0 0 auto;
+  }
+  /* Одна строка по высоте наравне с соседними полями, дальше растёт по содержимому. */
+  textarea.r-eps {
+    display: block;
+    resize: none;
+    overflow: hidden;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 20px;
+    min-height: 37px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .panel-row-grid > div.toggle-field {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 120px;
+  }
+  @media(max-width:768px) {
+    .panel-row-grid {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .panel-row-grid > div.toggle-field {
+      align-items: flex-start;
+      min-width: 0;
+    }
+    .panel-row-grid > div.grid-type {
+      flex: 1;
+    }
+  }
+
+  .mapping-group {
+    margin-bottom: 24px;
+  }
+  .mapping-group-header {
+    font-size: 13px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mapping-group-header b {
+    color: var(--text);
+  }
+  .mapping-group-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .mapping-group-header .g-add {
+    margin-left: auto;
+  }
+  /* Таблица маппингов роутера: широкая, поэтому скроллится внутри себя. */
+  .map-table-wrap {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow-x: auto;
+  }
+  .map-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 900px;
+  }
+  .map-table th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    font-weight: 700;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .map-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+  }
+  .map-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .map-table td.cell-ctr,
+  .map-table th.cell-ctr {
+    text-align: center;
+    width: 1%;
+    white-space: nowrap;
+  }
+  .map-table select,
+  .map-table textarea,
+  .map-table input:not([type="checkbox"]) {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .map-table .m-server,
+  .map-table .m-conn {
+    min-width: 130px;
+  }
+  /* Таблица синхронизации */
+  .sync-table tbody tr.sync-row {
+    cursor: pointer;
+  }
+  .sync-table tbody tr.sync-row:hover {
+    background: var(--accent-light);
+  }
+  .sync-table .cell-pair b {
+    color: var(--text);
+  }
+  .sync-table .cell-pair .arr {
+    color: var(--muted);
+    margin: 0 4px;
+  }
+  .sync-table .cell-status,
+  .sync-table .cell-active {
+    white-space: nowrap;
+  }
+  .sync-table .cell-active {
+    width: 1%;
+  }
+  .router-active-badge {
+    margin-left: 10px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .sync-table tbody tr.sync-row.is-active-conn td {
+    background: rgba(16, 124, 65, 0.05);
+  }
+  .sync-table tbody tr.sync-row.is-active-conn:hover td {
+    background: rgba(16, 124, 65, 0.1);
+  }
+  .btn-switch {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .btn-switch:hover {
+    background: var(--accent-hover);
+  }
+  /* Кнопки заворачиваем во внутренний div: display:flex прямо на <td>
+     выключает ячейку из табличной раскладки и ломает ширины колонок. */
+  .sync-table .cell-actions {
+    text-align: right;
+  }
+  .sync-table .cell-actions .btn-row {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+  /* Строка с планом: скрыта, пока строку не раскрыли. */
+  .sync-detail {
+    display: none;
+  }
+  .sync-detail.show {
+    display: table-row;
+  }
+  .sync-detail > td {
+    background: var(--bg);
+  }
+  /* Видимостью управляет сама строка, поэтому панель плана всегда развёрнута. */
+  .sync-detail .result {
+    display: block;
+    margin-top: 0;
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .map-table .btn-row { align-items: center; }
+  .map-table .btn-row button { flex: 0 0 auto; white-space: nowrap; }
+
+  /* Доступы: обзор подключений, редактирование внутри раскрываемых карточек. */
+  #tab-access [hidden] { display: none !important; }
+  .access-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .access-tabs { display: inline-flex; gap: 4px; padding: 4px; background: #e3eaf0; border-radius: 8px; }
+  .access-tabs button { display: flex; align-items: center; gap: 10px; border: 0; background: transparent; box-shadow: none; padding: 8px 16px; color: var(--muted); }
+  .access-tabs button[aria-selected="true"] { color: var(--text); background: var(--panel); box-shadow: 0 1px 4px #1a202c12; }
+  .access-count { font-size: 12px; padding: 0 6px; border-radius: 5px; background: var(--bg); color: var(--muted); }
+  .access-intro { margin: 0 0 18px; }
+  .access-list { display: flex; flex-direction: column; gap: 12px; }
+  .access-card { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; min-width: 0; }
+  .access-card.server-block { margin: 0; }
+  .access-card > summary { list-style: none; display: flex; align-items: center; gap: 16px; padding: 18px 20px; cursor: pointer; }
+  .access-card > summary::-webkit-details-marker, .access-connection > summary::-webkit-details-marker { display: none; }
+  .access-card > summary:hover { background: #f8fafc; }
+  .access-card > summary:focus-visible, .access-connection > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+  .access-symbol { flex: 0 0 40px; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-light); color: var(--accent); }
+  .access-symbol svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .access-summary-main { flex: 1; min-width: 0; }
+  .access-title { display: block; font-size: 15px; overflow-wrap: anywhere; }
+  .access-subtitle { display: block; margin-top: 3px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .access-summary-meta { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 48%; }
+  .access-tag { display: inline-block; padding: 3px 9px; border: 1px solid var(--line); border-radius: 5px; font-size: 12px; font-weight: 600; color: #526678; background: #f8fafc; overflow-wrap: anywhere; }
+  .access-tag.domain { color: #0063b8; background: var(--accent-light); border-color: #d1e7fc; }
+  .access-chevron { color: var(--muted); display: inline-block; transition: transform .15s; }
+  .access-card[open] > summary .access-chevron, .access-connection[open] > summary .access-chevron { transform: rotate(90deg); }
+  .access-editor { border-top: 1px solid var(--line); padding: 20px; }
+  .access-form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px 24px; }
+  .access-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 13px; font-weight: 600; }
+  .access-field > input, .access-field > select, .access-field > textarea { width: 100%; min-width: 0; }
+  .access-field small { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .access-editor h4 { font-size: 13px; margin: 24px 0 12px; }
+  .access-domain-settings { margin-top: 20px; padding: 16px; background: #f7f9fb; border-radius: 8px; }
+  .access-domain-settings .access-form-grid { align-items: center; }
+  .access-check { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; cursor: pointer; }
+  .access-check input[type="checkbox"] { flex: 0 0 auto; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
+  .access-check small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; font-weight: 400; }
+  .access-connections { display: flex; flex-direction: column; gap: 10px; }
+  .access-connection { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .access-connection > summary { list-style: none; display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; background: #f8fafc; }
+  .access-connection > summary > .access-chevron { margin-left: auto; }
+  .access-connection .access-editor { padding: 16px; }
+  .access-wide { grid-column: 1 / -1; }
+  .access-advanced { margin-top: 16px; }
+  .access-advanced > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .access-advanced .access-check { margin-top: 12px; }
+  .access-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+  .access-footer .muted { font-size: 12px; }
+  .access-identity { display: none; padding: 12px 14px; margin-top: 16px; background: var(--accent-light); border-radius: 6px; }
+  .access-identity.show { display: block; }
+  .access-empty { padding: 32px; text-align: center; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); }
+  /* Конфигурация: каждое действие и его поля находятся в одной карточке. */
+  #tab-config [hidden] { display: none !important; }
+  .config-intro { margin: 0 0 20px; }
+  .config-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 24px; align-items: start; }
+  .config-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 24px; min-width: 0; }
+  .config-card > header { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 24px; }
+  .config-card h2 { font-size: 17px; margin: 0; }
+  .config-card header p { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+  .config-form { display: flex; flex-direction: column; gap: 16px; max-width: 600px; }
+  .config-hint { margin: 0; color: var(--muted); font-size: 12px; }
+  .config-actions { margin-top: 4px; }
+  .config-actions button { min-height: 38px; }
+  .config-source { display: flex; gap: 6px; flex-wrap: wrap; }
+  .config-source button { border-color: transparent; padding: 6px 12px; color: var(--muted); }
+  .config-source button[aria-pressed="true"] { background: var(--accent-light); color: var(--accent); border-color: #d1e7fc; }
+  .config-file-picker { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 16px; border: 1px dashed #b4c5d5; border-radius: 8px; cursor: pointer; background: #f8fafc; }
+  .config-file-picker:hover { border-color: var(--accent); background: #f1f7fd; }
+  .config-file-picker:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .config-file-picker input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+  .config-file-picker > span:first-of-type { min-width: 0; }
+  .config-file-picker strong { display: block; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+  .config-file-picker small { display: block; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .config-file-action { flex-shrink: 0; color: var(--accent); font-size: 12px; font-weight: 600; }
+  #importText { resize: vertical; min-height: 140px; }
+  #tab-convert [hidden] { display: none !important; }
+  .converter-status { padding: 12px 14px; border-radius: 7px; font-size: 13px; background: var(--accent-light); color: #0059a8; }
+  .converter-status[data-state="success"] { background: var(--green-bg); color: var(--green); }
+  .converter-status[data-state="error"] { background: var(--red-bg); color: var(--red); overflow-wrap: anywhere; }
+  .converter-help { font-size: 13px; color: var(--muted); }
+  .converter-help summary { cursor: pointer; }
+  .converter-help ul { padding-left: 20px; margin: 12px 0 0; }
+  .converter-help li + li { margin-top: 8px; }
+  .converter-empty { padding: 28px 20px; border: 1px dashed var(--line); border-radius: 8px; text-align: center; background: #f8fafc; color: var(--muted); }
+  .converter-empty strong { font-size: 14px; color: var(--text); }
+  .converter-empty p { font-size: 13px; margin: 8px 0 0; }
+  .converter-downloads { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+  .converter-download { padding: 16px; background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+  .converter-download strong { font-size: 14px; }
+  .converter-download p { margin: 6px 0 16px; color: var(--muted); font-size: 12px; }
+  .converter-download button { font-size: 12px; padding: 8px 10px; white-space: nowrap; }
+  .converter-asc { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 16px; }
+  .converter-asc .config-hint { margin-top: 6px; }
+  .converter-copy { display: flex; gap: 8px; margin-top: 12px; }
+  .converter-copy input { flex: 1; min-width: 0; font: 12px/1.5 Consolas, Monaco, monospace; }
+  .converter-previews { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }
+  .converter-previews details { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .converter-previews summary { cursor: pointer; padding: 14px 18px; font-size: 13px; font-weight: 600; }
+  .converter-previews textarea { display: block; width: calc(100% - 36px); margin: 0 18px 18px; min-height: 180px; resize: vertical; }
+  @media(max-width:1100px) { .config-grid { grid-template-columns: minmax(0,1fr); } }
+  @media(max-width:600px) {
+    .config-card { padding: 18px; }
+    .config-card > header { gap: 10px; }
+    .config-file-picker { flex-direction: column; align-items: flex-start; }
+    .config-actions button { width: 100%; }
+    .converter-downloads { grid-template-columns: minmax(0,1fr); }
+    .converter-download button { width: 100%; }
+    .converter-copy { flex-direction: column; }
+  }
+  @media(max-width:900px) {
+    .access-summary-meta { max-width: 38%; }
+    .access-card > summary { gap: 12px; padding: 16px; }
+  }
+  @media(max-width:600px) {
+    .access-form-grid { grid-template-columns: minmax(0,1fr); }
+    .access-card > summary { flex-wrap: wrap; }
+    .access-summary-meta { order: 3; max-width: none; flex-basis: 100%; justify-content: flex-start; gap: 6px; }
+    .access-card > summary > .access-chevron { order: 2; margin-left: auto; }
+    .access-editor { padding: 16px; }
+    .access-symbol { flex-basis: 36px; width: 36px; height: 36px; }
+    .access-tabs button { padding: 8px 10px; }
+  }
+
+  /* Кнопка добавления блока — всегда снизу слева, одинаково на всех вкладках. */
+  .toolbar.add-bar {
+    margin: 12px 0 24px;
+  }
+  /* Свёрнутые настройки применения: редко трогают, места занимать не должны. */
+  .opts-fold {
+    margin-top: 24px;
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+  }
+  .opts-fold > summary {
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--muted);
+    list-style: none;
+    user-select: none;
+  }
+  .opts-fold > summary::-webkit-details-marker { display: none; }
+  .opts-fold > summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: 6px;
+    transition: transform 0.15s;
+  }
+  .opts-fold[open] > summary::before { transform: rotate(90deg); }
+  .opts-fold > summary:hover { color: var(--text); }
+  .opts-fold .opts-summary { color: var(--text); }
+  .opts-fold .panel { margin-top: 12px; }
+
+  /* Панель сохранения: липнет к низу области контента, пока есть правки. */
+  .savebar {
+    flex: 0 0 auto;
+    z-index: 20;
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 24px;
+    background: var(--bg-header);
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+  }
+  .savebar.show { display: flex; }
+
+  /* Подключения внутри сервера */
+  .conn-del-cell {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: flex-end;
+    padding-bottom: 2px;
+  }
+  .credhead input[readonly] {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    cursor: default;
+    outline: none;
+    box-shadow: none !important;
+  }
+  #toast {
+    position: fixed;
+    left: 50%;
+    bottom: 30px;
+    transform: translate(-50%, 20px);
+    background: #2c3e50;
+    color: #ffffff;
+    border: 1px solid #2c3e50;
+    padding: 12px 24px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 14px;
+    opacity: 0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
+    z-index: 9999;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .sidebar-backdrop { display: none; }
+  @media(max-width:768px) {
+    .grid2 { grid-template-columns: 1fr; }
+    .router-head { flex-wrap: wrap; }
+    .router-head .router-actions { width: 100%; margin-left: 0; }
+    .rail {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 220px;
+      z-index: 30;
+      box-shadow: 8px 0 24px #1a202c24;
+    }
+    .content { margin-left: 68px; }
+    .sidebar-backdrop:not([hidden]) {
+      display: block;
+      position: absolute;
+      inset: 0 0 0 68px;
+      z-index: 20;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: #1a202c40;
+    }
+    html[data-sidebar-collapsed="true"] .rail { width: 68px; box-shadow: none; }
+  }
+
+  /* Custom confirmation modal */
+  .modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .modal.show {
+    display: flex;
+    opacity: 1;
+  }
+  .modal-content {
+    background: #ffffff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    width: 90%;
+    max-width: 440px;
+    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.15);
+    transform: scale(0.95);
+    transition: transform 0.15s ease;
+    overflow: hidden;
+  }
+  .modal.show .modal-content {
+    transform: scale(1);
+  }
+  .modal-header {
+    flex-shrink: 0;
+    padding: 16px 20px;
+    font-size: 15px;
+    font-weight: 700;
+    border-bottom: 1px solid var(--line);
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .modal-body {
+    min-height: 0;
+    overflow-y: auto;
+    padding: 20px;
+    font-size: 14px;
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .modal-footer {
+    flex-shrink: 0;
+    padding: 12px 20px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    background: #f8f9fa;
+  }
+  #loginScreen {
+    height: 100vh;
+    height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+</style>
+<link rel="stylesheet" href="/mappings.css">
+<link rel="stylesheet" href="/sync.css">
+<link rel="stylesheet" href="/traffic.css">
+<link rel="stylesheet" href="/design.css">
+</head>
+<body>
+<div id="appContainer">
+<header class="header">
+  <div class="logo">Keenetic <span>AZ Sync</span></div>
+  <div class="status-bar">
+    <button id="logoutBtn" class="sm danger" style="display: none;">Выйти</button>
+  </div>
+</header>
+
+<div class="layout">
+  <button type="button" id="sidebarBackdrop" class="sidebar-backdrop" aria-label="Закрыть меню" hidden></button>
+  <aside class="rail" id="sidebar">
+    <button class="nav active" aria-label="Синхро" data-tab="sync" data-title="Синхронизация" data-sub="проверка и применение VPN-настроек на роутерах">
+      <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 4v5h-5"/></svg><span>Синхро</span></button>
+    <button class="nav" aria-label="Мониторинг" data-tab="traffic" data-title="Мониторинг" data-sub="живой трафик VPN-подключений">
+      <svg viewBox="0 0 24 24"><path d="M3 3v18h18M5 15l4-6 4 4 6-8"/></svg><span>Мониторинг</span></button>
+    <button class="nav" aria-label="Маппинги" data-tab="mappings" data-title="Маппинги" data-sub="подключения VPN-клиентов к роутерам">
+      <svg viewBox="0 0 24 24"><path d="M9 7h11M9 12h11M9 17h11"/><circle cx="4" cy="7" r="1.4"/><circle cx="4" cy="12" r="1.4"/><circle cx="4" cy="17" r="1.4"/></svg><span>Маппинги</span></button>
+    <button class="nav" aria-label="Доступы" data-tab="access" data-title="Доступы" data-sub="подключения к VPN-панелям и роутерам">
+      <svg viewBox="0 0 24 24"><circle cx="8" cy="14" r="4"/><path d="M11 11l8-8M16 3h3v3"/></svg><span>Доступы</span></button>
+    <button class="nav" aria-label="Конфигурация" data-tab="config" data-title="Конфигурация" data-sub="резервное копирование и восстановление настроек">
+      <svg viewBox="0 0 24 24"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 21h14"/></svg><span>Конфигурация</span></button>
+    <button class="nav" aria-label="Конвертер" data-tab="convert" data-title="Конвертер" data-sub="подготовка конфигурации AmneziaWG для Keenetic / Netcraze">
+      <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg><span>Конвертер</span></button>
+    
+    <button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Свернуть меню" aria-controls="sidebar" aria-expanded="true">
+      <svg viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+      <span>Свернуть меню</span>
+    </button>
+  </aside>
+
+  <div class="content">
+    <div class="content-scroll">
+    <div class="pagebar"><span class="title" id="pgTitle">Синхронизация</span><span class="sub" id="pgSub">проверка и применение VPN-настроек на роутерах</span></div>
+
+    <main>
+
+      <!-- SYNC -->
+      <section id="tab-sync" class="section show">
+        <div class="ss-toolbar">
+          <div class="ss-command"><button id="syncCheck" class="primary">Проверить все</button><button id="syncApply" disabled>Применить изменения</button></div>
+          <div class="ss-context"><span id="syncScope"></span><button id="syncClear" type="button" hidden>Снять выбор</button><button id="syncReload" type="button">Обновить</button></div>
+        </div>
+        <div class="ss-meta"><span id="syncSummary" class="ss-description" role="status" aria-live="polite"></span><span class="muted" id="syncmsg"></span></div>
+        <details class="opts-fold ss-options" id="syncOpts">
+          <summary>Параметры применения <span class="opts-summary" id="optsSummary"></span></summary>
+          <div class="panel">
+            <div class="opt">
+              <label class="sw"><input type="checkbox" id="swRestart" aria-label="Перезапускать соединение после изменений" checked><span class="sl"></span></label>
+              <div class="txt"><b>Перезапускать соединение после изменений</b>
+                <div class="h">Если активное соединение изменилось — сделать down→up, чтобы новые параметры применились (краткий разрыв). Выключи, чтобы не рвать связь — изменения подхватятся при следующем переподключении.</div></div>
+            </div>
+            <div class="opt">
+              <label class="sw"><input type="checkbox" id="swSecrets" aria-label="Обновлять секретные ключи"><span class="sl"></span></label>
+              <div class="txt"><b>Обновлять секретные ключи</b>
+                <div class="h">Пушить на роутер приватный и preshared-ключи из WG-Easy и пересоздавать пир, если сменился его публичный ключ (ротация на сервере). Обычно не нужно: ключи на роутере уже стоят, и прочитать их для сравнения нельзя.</div></div>
+            </div>
+          </div>
+        </details>
+        <div id="cards" class="card-grid"></div>
+      </section>
+
+      <!-- LIVE VPN TRAFFIC -->
+      <section id="tab-traffic" class="section">
+        <div class="traffic-toolbar"><div class="traffic-filters"><label>Источник<select id="trafficSource"><option value="server">Сервер</option><option value="router">Роутер</option></select></label><label>Роутер<select id="trafficRouter" aria-label="Роутер для мониторинга"><option value="">Все роутеры</option></select></label><label>На графике<select id="trafficWindow"><option value="120">2 минуты</option><option value="600">10 минут</option></select></label></div><div class="traffic-controls"><span class="traffic-live" id="trafficLive">Обновление каждые 10 с</span><button type="button" id="trafficPause">Пауза</button><button type="button" id="trafficRefresh" title="Один раз проверить активные интерфейсы на роутерах">Обновить подключения</button></div></div>
+        <p class="traffic-intro">↓ Скачивание к роутеру, ↑ отдача от роутера. Сбор идёт только на открытой видимой странице. Для источника «Сервер» используем подключение из последней проверки роутера; после переключения VPN вне админки нажмите «Обновить подключения». История до 10 минут сохраняется в этой вкладке браузера, перерывы остаются разрывами.</p>
+        <div id="trafficCards" class="card-grid"></div>
+      </section>
+
+      <!-- MAPPINGS -->
+      <section id="tab-mappings" class="section">
+        <div id="mappingOverview"><div class="map-toolbar"><button id="mappingAdd" class="primary">+ Подключение</button></div><div id="mappingsList" class="mappings-list card-grid"></div></div>
+        <div id="mappingEditor" hidden></div>
+      </section>
+
+      <!-- ACCESS -->
+      <section id="tab-access" class="section">
+        <div class="access-toolbar">
+          <div class="access-tabs" role="tablist" aria-label="Тип подключения">
+            <button type="button" id="accessServersTab" role="tab" aria-selected="true" aria-controls="accessServers">Серверы <span id="accessServerCount" class="access-count">0</span></button>
+            <button type="button" id="accessRoutersTab" role="tab" aria-selected="false" aria-controls="accessRouters" tabindex="-1">Роутеры <span id="accessRouterCount" class="access-count">0</span></button>
+          </div>
+          <div class="access-actions"><button type="button" id="accessOrderToggle" aria-expanded="false" aria-controls="accessOrderPanel">Изменить порядок</button><button class="sm" id="addPanel">+ Добавить сервер</button>
+          <button class="sm" id="addRouter" hidden>+ Добавить роутер</button></div>
+        </div>
+        <section id="accessOrderPanel" class="access-order-panel" aria-labelledby="accessOrderTitle" hidden>
+          <h2 id="accessOrderTitle">Порядок отображения</h2>
+          <p class="muted">Перемещайте элементы кнопками ↑ и ↓. Порядок используется во всех разделах и списках выбора. Затем нажмите «Сохранить» внизу экрана.</p>
+          <ol id="accessOrderList" class="access-order-list"></ol>
+          <div id="accessOrderStatus" class="muted" role="status" aria-live="polite"></div>
+        </section>
+        <div id="accessServers" role="tabpanel" aria-labelledby="accessServersTab">
+          <p class="access-intro muted">VPN-серверы и их панели управления. Откройте карточку, чтобы изменить подключение или домен.</p>
+          <div id="panelsBox" class="access-list card-grid"></div>
+          <div id="accessServersEmpty" class="access-empty" hidden>Добавьте сервер, чтобы подключить панели AmneziaWG и OpenVPN.</div>
+        </div>
+        <div id="accessRouters" role="tabpanel" aria-labelledby="accessRoutersTab" hidden>
+          <p class="access-intro muted">Роутеры Keenetic и Netcraze, на которые отправляются VPN-конфигурации.</p>
+          <div id="routersBox" class="access-list card-grid"></div>
+          <div id="accessRoutersEmpty" class="access-empty" hidden>Добавьте роутер и укажите адрес его веб-интерфейса.</div>
+        </div>
+      </section>
+
+      <!-- CONFIG -->
+      <section id="tab-config" class="section">
+        <p class="config-intro muted">Резервная копия содержит серверы, роутеры, маппинги и пароли доступа.</p>
+        <div class="config-grid card-grid">
+          <article class="config-card">
+            <header><span class="access-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4"/></svg></span><div><h2>Скачать копию</h2><p>Сохраните настройки для переноса или восстановления.</p></div></header>
+            <form id="exportForm" class="config-form">
+              <label class="access-field">Формат копии<select id="exportFormat"><option value="enc">С паролем (.enc)</option><option value="yaml">Без шифрования (.yaml)</option></select></label>
+              <label class="access-field" id="exportPasswordGroup">Пароль резервной копии<input type="password" id="encPass" placeholder="Введите пароль" autocomplete="new-password" required></label>
+              <p class="config-hint" id="exportHint">Для восстановления понадобится этот пароль.</p>
+              <div class="config-actions"><button type="submit" class="primary" id="exportBtn">Скачать копию</button></div>
+            </form>
+          </article>
+          <article class="config-card">
+            <header><span class="access-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4m-5 5 5-5 5 5M5 17v4h14v-4"/></svg></span><div><h2>Восстановить настройки</h2><p>Загрузите сохранённую конфигурацию приложения.</p></div></header>
+            <form id="importForm" class="config-form">
+              <div class="config-source" role="group" aria-label="Источник конфигурации"><button type="button" id="importFromFile" aria-pressed="true">Из файла</button><button type="button" id="importFromText" aria-pressed="false">Вставить текст</button></div>
+              <div id="importFileGroup">
+                <label class="config-file-picker"><input type="file" id="importFile" accept=".yaml,.yml,.json,.txt,.enc" aria-label="Файл резервной копии"><span><strong id="importFileName">Выберите файл резервной копии</strong><small>YAML, JSON или ENC</small></span><span class="config-file-action">Выбрать файл</span></label>
+              </div>
+              <label class="access-field" id="importTextGroup" hidden>Содержимое конфигурации<textarea id="importText" rows="6" placeholder="Вставьте YAML, JSON или зашифрованную копию" spellcheck="false"></textarea></label>
+              <label class="access-field" id="importPasswordGroup" hidden>Пароль резервной копии<input type="password" id="impPass" placeholder="Пароль, заданный при экспорте" autocomplete="off"></label>
+              <p class="config-hint">Восстановление заменит текущие серверы, роутеры и маппинги.</p>
+              <div class="config-actions"><button type="submit" class="primary" id="importBtn" disabled>Восстановить настройки</button></div>
+            </form>
+          </article>
+        </div>
+      </section>
+
+      <!-- CONVERTER -->
+      <section id="tab-convert" class="section">
+        <div class="config-grid card-grid">
+          <article class="config-card">
+            <header><span class="access-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h4"/></svg></span><div><h2>Исходный файл</h2><p>Выберите конфигурацию AmneziaWG для преобразования.</p></div></header>
+            <div class="config-form">
+              <label class="config-file-picker"><input type="file" id="cvFile" accept=".conf,.txt,text/plain" aria-label="Конфигурация AmneziaWG"><span><strong id="cvFileName">Выберите конфигурацию AmneziaWG</strong><small>Файл .conf или .txt</small></span><span class="config-file-action">Выбрать файл</span></label>
+              <p class="config-hint">Файл обрабатывается в браузере и остаётся на вашем устройстве.</p>
+              <div id="cvStatusPanel" class="converter-status" hidden><div id="cvStatus" role="status" aria-live="polite"></div></div>
+              <details class="converter-help"><summary>Что делает конвертер</summary><ul><li>Добавляет <code>77.88.8.8/32</code> в AllowedIPs.</li><li>Готовит <code>routes.bat</code> с маршрутами, включая <code>14.16.0.0/14</code> и DNS-маршрут.</li><li>Собирает короткую команду ASC, если в файле заданы параметры AmneziaWG.</li></ul></details>
+            </div>
+          </article>
+          <article class="config-card">
+            <header><span class="access-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4"/></svg></span><div><h2>Готовые файлы</h2><p>Скачайте результат и используйте его для настройки роутера.</p></div></header>
+            <div id="cvEmpty" class="converter-empty"><strong>Здесь появится результат</strong><p>Выберите исходный файл, чтобы получить конфигурацию, маршруты и команду ASC.</p></div>
+            <div id="cvResults" hidden>
+              <div class="converter-downloads">
+                <div class="converter-download"><strong>Конфигурация .conf</strong><p>Обновлённый список AllowedIPs.</p><button class="primary" id="cvDlConf" disabled>Скачать .conf</button></div>
+                <div class="converter-download"><strong>Маршруты .bat</strong><p>Команды добавления маршрутов.</p><button id="cvDlBat" disabled>Скачать routes.bat</button></div>
+              </div>
+              <div id="cvAscPanel" class="converter-asc" hidden>
+                <label class="access-field" for="cvAsc">Команда ASC</label><p class="config-hint">Короткий формат для интерфейса Wireguard0.</p>
+                <div class="converter-copy"><input id="cvAsc" readonly><button class="sm" id="cvCopyAsc">Копировать</button></div>
+              </div>
+            </div>
+          </article>
+        </div>
+        <div id="cvPrevPanel" class="converter-previews" hidden>
+          <details><summary>Предпросмотр конфигурации (.conf)</summary><textarea id="cvConf" rows="8" readonly aria-label="Предпросмотр конфигурации"></textarea></details>
+          <details><summary>Предпросмотр маршрутов (routes.bat)</summary><textarea id="cvRoutes" rows="8" readonly aria-label="Предпросмотр маршрутов"></textarea></details>
+        </div>
+      </section>
+
+    </main>
+    </div>
+
+    <div class="savebar" id="saveBar">
+      <button class="primary" id="saveBarSave">Сохранить</button>
+      <button id="saveBarCancel">Отменить</button>
+      <span class="muted">Есть несохранённые изменения</span>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<div id="confirmModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">Подтверждение</div>
+    <div class="modal-body" id="confirmMsg"></div>
+    <div class="modal-footer">
+      <button id="confirmCancel">Отмена</button>
+      <button class="primary" id="confirmOk">Применить</button>
+    </div>
+  </div>
+</div>
+</div> <!-- /appContainer -->
+
+<div id="loginScreen" style="display: none; align-items: center; justify-content: center; background: var(--bg); padding: 20px;">
+  <div class="panel" style="width: 100%; max-width: 400px; padding: 30px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin: auto;">
+    <div style="font-size: 24px; font-weight: 800; text-align: center; margin-bottom: 8px; color: var(--accent);">Keenetic <span style="color: var(--text); font-weight: 300;">AZ Sync</span></div>
+    <div style="font-size: 13px; color: var(--muted); text-align: center; margin-bottom: 24px; font-weight: 600;">Вход в панель управления</div>
+    
+    <form id="loginForm">
+      <div style="margin-bottom: 16px;">
+        <label class="fld" style="margin-bottom: 6px; display: block;">Имя пользователя</label>
+        <input id="loginUser" type="text" required style="width: 100%; padding: 8px 12px; border: 1px solid var(--field-border); border-radius: 4px; font-size: 14px; background: var(--field); color: var(--text);">
+      </div>
+      <div style="margin-bottom: 20px;">
+        <label class="fld" style="margin-bottom: 6px; display: block;">Пароль</label>
+        <input id="loginPass" type="password" required style="width: 100%; padding: 8px 12px; border: 1px solid var(--field-border); border-radius: 4px; font-size: 14px; background: var(--field); color: var(--text);">
+      </div>
+      
+      <div id="loginError" class="err-text" style="margin-bottom: 16px; display: none; text-align: center; font-weight: 600; color: var(--red);">Неверный логин или пароль</div>
+      
+      <button class="primary" type="submit" style="width: 100%; padding: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border-radius: 4px; border: 0;">Войти</button>
+    </form>
+  </div>
+</div>
+
+<script src="/order.js"></script>
+<script src="/mappings.js"></script>
+<script src="/speed.js"></script>
+<script src="/traffic.js"></script>
+<script src="/sync.js"></script>
+<script>
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let CONFIG={servers:{},routers:{},mappings:[]};
+const entityNames=kind=>DisplayOrder.names(CONFIG,kind);
+let AUTHENTICATED = false;
+let CONFIG_REV = '';
+try { localStorage.removeItem('awg_sync_auth'); } catch {}
+
+function toast(msg,err){const t=$('#toast');t.textContent=msg;t.style.borderColor=err?'#5a2730':'var(--line)';t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2300);}
+
+function showLoginScreen() {
+  stopTrafficMonitor();
+  clearTrafficHistory();
+  $('#appContainer').style.display = 'none';
+  $('#loginScreen').style.display = 'flex';
+  $('#loginPass').value = '';
+  $('#loginError').style.display = 'none';
+}
+
+function hideLoginScreen() {
+  $('#appContainer').style.display = 'block';
+  $('#loginScreen').style.display = 'none';
+  updateLogoutButtonVisibility();
+}
+
+function updateLogoutButtonVisibility() {
+  const btn = $('#logoutBtn');
+  if (btn) btn.style.display = AUTHENTICATED ? 'inline-block' : 'none';
+}
+
+async function handleLoginSubmit() {
+  const user = $('#loginUser').value;
+  const pass = $('#loginPass').value;
+  const token = btoa(unescape(encodeURIComponent(user + ':' + pass)));
+  
+  const ctrl=new AbortController();
+  const t=setTimeout(()=>ctrl.abort(), 5000);
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Authorization': 'Basic ' + token, 'Content-Type': 'application/json' },
+      body: '{}',
+      signal: ctrl.signal
+    });
+    clearTimeout(t);
+    if (r.status === 200) {
+      AUTHENTICATED = true;
+      $('#loginPass').value = '';
+      hideLoginScreen();
+      if(await loadCfg())await loadSync();
+    } else {
+      $('#loginError').textContent = 'Неверный логин или пароль';
+      $('#loginError').style.display = 'block';
+    }
+  } catch (e) {
+    clearTimeout(t);
+    $('#loginError').textContent = 'Ошибка подключения: ' + e.message;
+    $('#loginError').style.display = 'block';
+  }
+}
+
+$('#loginForm').onsubmit = event => { event.preventDefault(); handleLoginSubmit(); };
+$('#logoutBtn').onclick = async () => {
+  try { await api('/api/logout', {}); AUTHENTICATED = false; CONFIG_REV = ''; updateLogoutButtonVisibility(); showLoginScreen(); }
+  catch(e) { toast('Не удалось завершить сеанс: '+e.message,true); }
+};
+
+function showConfirm(msg, action = 'Применить') {
+  return new Promise((resolve) => {
+    const modal = $('#confirmModal');
+    const msgEl = $('#confirmMsg');
+    const okBtn = $('#confirmOk');
+    const cancelBtn = $('#confirmCancel');
+    okBtn.textContent = action;
+    
+    msgEl.innerHTML = msg;
+    modal.classList.add('show');
+    
+    function close(val) {
+      modal.classList.remove('show');
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+      resolve(val);
+    }
+    
+    okBtn.onclick = () => close(true);
+    cancelBtn.onclick = () => close(false);
+    modal.onclick = (e) => { if (e.target === modal) close(false); };
+  });
+}
+
+async function api(path,body,timeoutMs=60000,responseType='json'){
+  const ctrl=new AbortController();const t=setTimeout(()=>ctrl.abort(),timeoutMs);
+  let r;
+  const headers = body ? { 'Content-Type': 'application/json' } : {};
+  if(body&&['/api/config','/api/import','/api/import-enc'].includes(path))body={...body,revision:CONFIG_REV};
+  try{ 
+    r=await fetch(path,{
+      method:body?'POST':'GET',
+      credentials:'same-origin',
+      headers,
+      body:body?JSON.stringify(body):undefined,
+      signal:ctrl.signal
+    }); 
+  }
+  catch(e){ throw new Error(e.name==='AbortError'?'таймаут — роутер недоступен?':e.message); }
+  finally{ clearTimeout(t); }
+
+  if (r.status === 401) {
+    showLoginScreen();
+    throw Object.assign(new Error('Требуется авторизация'),{status:401});
+  }
+
+  if(responseType==='text'){
+    if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||`HTTP ${r.status}`);}
+    return r.text();
+  }
+  const j=await r.json(); if(j.error||!r.ok)throw Object.assign(new Error(j.error||`HTTP ${r.status}`),{status:r.status}); if(j.revision)CONFIG_REV=j.revision; return j;
+}
+
+/* nav */
+$$('.rail .nav').forEach(b=>b.onclick=()=>{
+  $$('.rail .nav').forEach(t=>t.classList.toggle('active',t===b));
+  $$('.section').forEach(s=>s.classList.toggle('show',s.id==='tab-'+b.dataset.tab));
+  $('#pgTitle').textContent=b.dataset.title; $('#pgSub').textContent=b.dataset.sub;
+  if(b.dataset.tab==='traffic') startTrafficMonitor(); else stopTrafficMonitor();
+  if(b.dataset.tab==='sync'){ loadSync(); updateOptsSummary(); }
+  // Высоту endpoints можно посчитать только когда вкладка уже видима.
+  if(b.dataset.tab==='access') requestAnimationFrame(autosizeAllEps);
+});
+
+/* SYNC */
+const optNoRestart=()=>!$('#swRestart').checked;
+const optSecrets=()=>$('#swSecrets').checked;
+function cap(arr,n=15){const a=arr.slice(0,n).map(esc).join('\n');return arr.length>n?a+`\n<span class="more">… ещё ${arr.length-n}</span>`:a;}
+
+// План для OpenVPN: сравниваются директивы .ovpn, содержимое <key>/<cert> не показывается.
+function renderOvpnPlan(box,plan,m){
+  let h=`<div class="meta">openvpn-ui: ${esc(m.client)} · remote ${esc(m.remote||'?')} · ${esc(m.cipher||'?')} · роутер ${esc(m.routerBase)}</div>`;
+  if(plan.mode==='noop'){box.innerHTML=h+`<span class="pill ok">✓ конфиг совпадает</span>`;return;}
+  if(plan.mode==='create'){
+    box.innerHTML=h+`<span class="pill warn">создание интерфейса ${esc(m.newName)}</span>`+
+      `<div class="meta">description "${esc(m.interface)}" · директив ${m.lines} · блоки ${esc((m.blocks||[]).map(b=>'<'+b+'>').join(' '))}</div>`+
+      `<div class="grp add"><div class="h">план: создать интерфейс и залить .ovpn целиком</div></div>`;
+    return;
+  }
+  const ch=plan.changes||{};
+  h+=`<div class="meta">интерфейс <b>${esc(m.ifaceName)}</b> ("${esc(m.interface)}")${m.connected?' · подключён':''}${m.acceptRoutes?' · accept-routes':''}</div>`;
+  h+=`<span class="pill info">различий: ${plan.total}</span>`;
+  const grp=(cls,t,arr)=>(arr&&arr.length)?`<div class="grp ${cls}"><div class="h">${t} (${arr.length})</div><div class="items">${cap(arr)}</div></div>`:'';
+  h+=grp('add','директивы +',ch.ovpnAdd)+grp('del','директивы −',ch.ovpnDel);
+  h+=grp('par','сертификаты и ключи',ch.ovpnBlocks);
+  if(plan.restart)h+=`<div class="restart">соединение активно → после применения перезапуск (down → up)</div>`;
+  box.innerHTML=h;
+}
+
+function renderPlan(box,plan,withSecrets=optSecrets()){
+  renderPlanDetails(box,plan,withSecrets);
+  const a=plan.meta?.activation;
+  if(!a||plan.error||(!a.enable&&!a.disable.length))return;
+  const note=document.createElement('div');note.className='grp par';
+  note.innerHTML='<div class="h">Переключение VPN</div>'+
+    (a.disable.length?'<div>Сначала выключить: '+a.disable.map(i=>esc(i.description)+' ('+esc(i.name)+')').join(', ')+'.</div>':'')+
+    '<div>'+ (a.enable?'Затем включить: ':'Останется включённым: ')+esc(plan.meta.interface)+' ('+esc(a.target)+').</div>';
+  box.prepend(note);
+}
+function renderPlanDetails(box,plan,withSecrets=optSecrets()){
+  const m=plan.meta||{};
+  if(plan.error){box.innerHTML=`<span class="pill err">ошибка</span> <span class="err-text">${esc(plan.error)}</span>`;return;}
+  if(m.kind==='openvpn')return renderOvpnPlan(box,plan,m);
+  let h=`<div class="meta">WG-Easy: ${esc(m.client)} · AllowedIPs ${m.allowedIps??'?'} · роутер ${esc(m.routerBase)} · KeenOS ${esc(m.keenOsVersion||'unknown')} · ASC ${esc(m.ascFormat||'short')}</div>`;
+  if(plan.mode==='noop'){box.innerHTML=h+`<span class="pill ok">✓ уже синхронизировано</span>`;return;}
+  if(plan.mode==='create'){
+    box.innerHTML=h+`<span class="pill warn">создание интерфейса ${esc(m.newName)}</span>`+
+      `<div class="meta">addr ${esc(m.addr)}/32 · mtu ${esc(m.mtu)} · dns ${esc((m.dns||[]).join(',')||'—')} · asc ${m.hasAsc?'да':'нет'} · пир «${esc(m.peerLabel||'')}»<br>${esc((m.peer||'').slice(0,16))}… @ ${esc(m.endpoint)} · allow-ips ${m.allowCount} · routes ${m.routeCount}</div>`+
+      `<div class="grp add"><div class="h">план: ${plan.total} команд (создание с нуля)</div></div>`;
+    return;
+  }
+  const ch=plan.changes||{};
+  h+=`<div class="meta">интерфейс <b>${esc(m.ifaceName)}</b> ("${esc(m.interface)}") · пир ${esc(m.peerLabel||'—')}</div>`;
+  h+=`<span class="pill info">изменений: ${plan.total}</span>`;
+  if(plan.pubkeyChanged&&!withSecrets)h+=` <span class="pill warn">сменился ключ пира — нужны «секретные ключи»</span>`;
+  const grp=(cls,t,arr)=>(arr&&arr.length)?`<div class="grp ${cls}"><div class="h">${t} (${arr.length})</div><div class="items">${cap(arr)}</div></div>`:'';
+  if(ch.params&&ch.params.length)h+=`<div class="grp par"><div class="h">параметры (${ch.params.length})</div><div class="items">${cap(ch.params)}</div></div>`;
+  h+=grp('add','allow-ips +',ch.allowAdd)+grp('del','allow-ips −',ch.allowDel);
+  h+=grp('add','route !AntiZapretAWG +',ch.awgAdd)+grp('del','route !AntiZapretAWG −',ch.awgDel);
+  h+=grp('add','ipv6 route +',ch.awg6Add)+grp('del','ipv6 route −',ch.awg6Del);
+  h+=grp('add','route !AntiZapretDNS +',ch.dnsAdd)+grp('del','route !AntiZapretDNS −',ch.dnsDel);
+  if(plan.restart)h+=`<div class="restart">соединение активно → после применения перезапуск (down → up)</div>`;
+  box.innerHTML=h;
+}
+
+// Свёрнутый блок должен сообщать своё состояние, иначе настройки легко забыть.
+function updateOptsSummary(){
+  const el=$('#optsSummary');
+  if(!el)return;
+  const parts=[];
+  parts.push($('#swRestart').checked?'перезапуск вкл':'перезапуск выкл');
+  if($('#swSecrets').checked)parts.push('секретные ключи вкл');
+  el.textContent='— '+parts.join(', ');
+}
+$('#swRestart').onchange=()=>{updateOptsSummary();invalidateSyncPlans();};
+$('#swSecrets').onchange=()=>{updateOptsSummary();invalidateSyncPlans();};
+updateOptsSummary();
+initSyncUi();
+initTrafficUi();
+
+/* MAPPINGS */
+const CONN_LABEL={'wg-easy':'WG-Easy','openvpn-ui':'OpenVPN'};
+const serverOpts=sel=>entityNames('servers').map(k=>`<option ${k===sel?'selected':''}>${esc(k)}</option>`).join('');
+const routerOpts=sel=>entityNames('routers').map(k=>`<option ${k===sel?'selected':''}>${esc(k)}</option>`).join('');
+// Подключения конкретного сервера: значение — id, подпись — тип.
+const connOptsFor=(serverId,sel)=>{
+  const s=CONFIG.servers[serverId];
+  if(!s||!s.connections)return '';
+  return Object.entries(s.connections)
+    .map(([cid,c])=>`<option value="${esc(cid)}" ${cid===sel?'selected':''}>${esc(CONN_LABEL[c.type]||c.type||cid)}</option>`).join('');
+};
+const connKind=(serverId,connId)=>{
+  const c=CONFIG.servers[serverId]&&CONFIG.servers[serverId].connections[connId];
+  return c&&c.type==='openvpn-ui'?'openvpn':'wireguard';
+};
+
+/* ACCESS */
+const accessIcon=(router=false)=>`<span class="access-symbol" aria-hidden="true"><svg viewBox="0 0 24 24">${router
+  ? '<rect x="3" y="12" width="18" height="8" rx="2"/><path d="M7 12V5m10 7V5M7 16h.01M11 16h.01M15 3l2 2 2-2M5 3l2 2 2-2"/>'
+  : '<rect x="4" y="3" width="16" height="7" rx="2"/><rect x="4" y="14" width="16" height="7" rx="2"/><path d="M8 6.5h.01M8 17.5h.01M12 6.5h4M12 17.5h4"/>'}</svg></span>`;
+
+function selectAccess(kind,focus=false){
+  const servers=kind==='servers';
+  $('.content-scroll').scrollTop=0;
+  $('#accessServers').hidden=!servers;$('#accessRouters').hidden=servers;
+  $('#addPanel').hidden=!servers;$('#addRouter').hidden=servers;
+  for(const [id,selected] of [['accessServersTab',servers],['accessRoutersTab',!servers]]){
+    const tab=$('#'+id);tab.setAttribute('aria-selected',String(selected));tab.tabIndex=selected?0:-1;
+    if(selected&&focus)tab.focus();
+  }
+  if(!servers)requestAnimationFrame(autosizeAllEps);
+  renderAccessOrder();
+}
+$('#accessServersTab').onclick=()=>selectAccess('servers');
+$('#accessRoutersTab').onclick=()=>selectAccess('routers');
+for(const tab of $$('.access-tabs [role="tab"]'))tab.onkeydown=e=>{
+  if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
+  e.preventDefault();
+  const kind=e.key==='Home'?'servers':e.key==='End'?'routers':tab.id==='accessServersTab'?'routers':'servers';
+  selectAccess(kind,true);
+};
+
+function updateAccessCounts(){
+  const servers=$$('#panelsBox > .server-block').length,routers=$$('#routersBox > .router-row').length;
+  $('#accessServerCount').textContent=servers;$('#accessRouterCount').textContent=routers;
+  $('#accessServersEmpty').hidden=servers>0;$('#accessRoutersEmpty').hidden=routers>0;
+  renderAccessOrder();
+}
+
+/* Reorder the existing cards so unsaved field values remain intact. */
+function moveAccessCard(card, delta) {
+  const parent=card.parentElement, cards=[...parent.children], index=cards.indexOf(card), neighbour=cards[index+delta];
+  if(!neighbour)return false;
+  parent.insertBefore(card,delta<0?neighbour:neighbour.nextSibling);
+  markDirty('access');
+  return true;
+}
+function renderAccessOrder(focusCard=null,direction=0) {
+  const servers=$('#accessRouters').hidden, box=$(servers?'#panelsBox':'#routersBox'), cards=[...box.children];
+  const toggle=$('#accessOrderToggle'), panel=$('#accessOrderPanel');toggle.disabled=!cards.length&&panel.hidden;
+  if(panel.hidden)return;
+  $('#accessOrderTitle').textContent=servers?'Порядок серверов':'Порядок роутеров';
+  const list=$('#accessOrderList');list.innerHTML='';
+  $('#accessOrderStatus').textContent='';
+  cards.forEach((card,index)=>{
+    const name=$(servers?'.s-id':'.r-id',card).value.trim()||(servers?'Новый сервер':'Новый роутер');
+    const row=document.createElement('li');row.className='access-order-row';
+    row.innerHTML=`<span class="access-order-position">${index+1}</span><strong>${esc(name)}</strong><div class="access-order-buttons"><button type="button" data-direction="-1" aria-label="Поднять ${esc(name)}" title="Выше" ${index===0?'disabled':''}>↑</button><button type="button" data-direction="1" aria-label="Опустить ${esc(name)}" title="Ниже" ${index===cards.length-1?'disabled':''}>↓</button></div>`;
+    $$('button',row).forEach(button=>button.onclick=()=>{
+      const delta=Number(button.dataset.direction);
+      if(moveAccessCard(card,delta))renderAccessOrder(card,delta);
+    });
+    list.appendChild(row);
+    if(card===focusCard){
+      const button=$(`button[data-direction="${direction}"]`,row);
+      (button.disabled?$('button:not(:disabled)',row):button)?.focus();
+      $('#accessOrderStatus').textContent=`${name}: ${index+1} из ${cards.length}`;
+    }
+  });
+}
+$('#accessOrderToggle').onclick=()=>{
+  const panel=$('#accessOrderPanel');panel.hidden=!panel.hidden;
+  $('#accessOrderToggle').setAttribute('aria-expanded',String(!panel.hidden));
+  $('#accessOrderToggle').textContent=panel.hidden?'Изменить порядок':'Скрыть порядок';
+  renderAccessOrder();
+};
+
+function openAccessCard(card){
+  // Сворачивание оставляет все введённые значения в DOM до сохранения.
+  card.addEventListener('toggle',(e)=>{
+    if(e.target!==card||!card.open||!card.parentElement)return;
+    for(const other of Array.from(card.parentElement.children))if(other!==card&&other.tagName==='DETAILS')other.open=false;
+    requestAnimationFrame(autosizeAllEps);
+  });
+}
+
+// id подключения остаётся прежним при смене типа: маппинги продолжают работать.
+function connRow(cid,c){
+  const tr=document.createElement('details');
+  tr.className='conn-row';
+  tr.classList.add('access-connection');
+  tr.dataset.cid=cid;
+  const isOvpn=c.type==='openvpn-ui';
+  tr.open=!c.url;
+  tr.innerHTML=`
+    <summary><div class="access-summary-main"><strong class="c-summary-type">${isOvpn?'OpenVPN':'AmneziaWG'}</strong><span class="access-subtitle c-summary-url">${esc(c.url||'Укажите адрес панели')}</span></div><span class="access-chevron" aria-hidden="true">›</span></summary>
+    <div class="access-editor"><div class="access-form-grid">
+    <label class="access-field">Тип панели<select class="c-type">
+      <option value="wg-easy" ${isOvpn?'':'selected'}>WG-Easy (AmneziaWG)</option>
+      <option value="openvpn-ui" ${isOvpn?'selected':''}>openvpn-ui (OpenVPN)</option>
+    </select></label>
+    <label class="access-field">Адрес панели<input class="c-url" value="${esc(c.url||'')}" placeholder="${isOvpn?'https://host:3443':'https://host:5443'}" spellcheck="false"></label>
+    <label class="access-field">Логин<input class="c-user" value="${esc(c.username||'')}" autocomplete="off"></label>
+    <label class="access-field">Пароль<input class="c-pass" type="password" value="${esc(c.password||'')}" autocomplete="off"></label>
+    </div>
+    <details class="access-advanced"><summary>Дополнительные параметры</summary>
+      <label class="access-check"><input type="checkbox" class="c-insec" ${c.insecure!==false?'checked':''}><span>Разрешить самоподписанный сертификат</span></label>
+    </details>
+    <div class="access-footer"><span></span><button class="sm danger c-del">Удалить подключение</button></div></div>`;
+  tr.addEventListener('input',()=>{
+    $('.c-summary-type',tr).textContent=$('.c-type',tr).value==='openvpn-ui'?'OpenVPN':'AmneziaWG';
+    $('.c-summary-url',tr).textContent=$('.c-url',tr).value.trim()||'Укажите адрес панели';
+  });
+  $('.c-del',tr).onclick=async()=>{
+    if(!await showConfirm('Удалить это подключение? Изменение вступит в силу после сохранения.'))return;
+    const server=tr.closest('.server-block');tr.remove();markDirty('access');updateServerSummary(server);
+  };
+  openAccessCard(tr);
+  return tr;
+}
+
+function updateServerSummary(d){
+  $('.access-title',d).textContent=$('.s-id',d).value.trim()||'Новый сервер';
+  $('.s-summary-host',d).textContent=$('.s-host',d).value.trim()||'Адрес не указан';
+  const kinds=[...new Set($$('.c-type',d).map(el=>el.value==='openvpn-ui'?'OpenVPN':'AmneziaWG'))];
+  const useDomain=$('.s-use-domain',d).checked;
+  const target=$('.s-domain',d).value.trim();
+  $('.access-summary-meta',d).innerHTML=kinds.map(k=>`<span class="access-tag">${k}</span>`).join('')
+    +`<span class="access-tag ${useDomain?'domain':''}">${useDomain?'Домен: '+esc(target||'не указан'):'Адрес из панели'}</span>`;
+}
+
+function serverBlock(id,s){
+  const d=document.createElement('details');
+  d.className='server-block access-card';d.open=!id;
+  d.innerHTML=`<summary>${accessIcon()}<div class="access-summary-main"><strong class="access-title"></strong><span class="access-subtitle s-summary-host"></span></div><div class="access-summary-meta"></div><span class="access-chevron" aria-hidden="true">›</span></summary>
+    <div class="access-editor">
+    <div class="access-form-grid">
+      <label class="access-field">Название сервера<input class="s-id" value="${esc(id)}" data-old-id="${esc(id)}" placeholder="Например, HostVDS"></label>
+      <label class="access-field">IP / хост сервера<input class="s-host" value="${esc(s.host||'')}" placeholder="192.0.2.10" spellcheck="false"><small>Используется при добавлении подключения к панели.</small></label>
+    </div>
+    <div class="access-domain-settings"><div class="access-form-grid">
+      <label class="access-field">Доменное имя<input class="s-domain" value="${esc(s.domain||'')}" placeholder="vpn.example.com" autocomplete="off" spellcheck="false"></label>
+      <label class="access-check"><input type="checkbox" class="s-use-domain" ${s.useDomain===true?'checked':''}><span>Использовать доменное имя в конфигурации<small>AmneziaWG и OpenVPN получат этот адрес при следующей синхронизации.</small></span></label>
+    </div></div>
+    <h4>Панели управления</h4><div class="access-connections"></div>
+    <div class="access-footer"><button class="sm s-addconn">+ Добавить подключение</button><button class="sm danger s-del">Удалить сервер</button></div>
+    </div>`;
+
+  const body=$('.access-connections',d);
+  Object.entries(s.connections||{}).forEach(([cid,c])=>body.appendChild(connRow(cid,c)));
+  d.addEventListener('input',()=>updateServerSummary(d));
+  d.addEventListener('change',()=>updateServerSummary(d));
+  $('.s-del',d).onclick=async()=>{
+    if(!await showConfirm(`Удалить сервер «${esc($('.s-id',d).value||'Новый сервер')}»? Изменение вступит в силу после сохранения.`))return;
+    markDirty('access');d.remove();updateAccessCounts();
+  };
+  $('.s-addconn',d).onclick=()=>{
+    markDirty('access');
+    const used=new Set($$('.conn-row',d).map(r=>r.dataset.cid));
+    // Свободный id: сначала осмысленные wg/ovpn, дальше с номером.
+    let cid=used.has('wg')?(used.has('ovpn')?null:'ovpn'):'wg';
+    if(!cid){let i=2;while(used.has('conn'+i))i++;cid='conn'+i;}
+    const type=cid==='ovpn'?'openvpn-ui':'wg-easy';
+    const host=$('.s-host',d).value.trim();
+    const url=host?`https://${host}:${type==='openvpn-ui'?'3443':'5443'}`:'';
+    const connection=connRow(cid,{type,url,username:'admin',password:'',insecure:false});
+    connection.open=true;body.appendChild(connection);updateServerSummary(d);
+    $('.c-url',connection).focus();
+  };
+  updateServerSummary(d);openAccessCard(d);
+  return d;
+}
+
+// Подгоняет высоту textarea под содержимое, чтобы поле не занимало две строки впустую.
+// У скрытой вкладки scrollHeight равен нулю, поэтому там пересчёт пропускаем —
+// его повторит переключение на вкладку.
+function autosizeEps(ta){
+  if(!ta||!ta.offsetParent)return;
+  const cs=getComputedStyle(ta);
+  const borders=cs.boxSizing==='border-box'
+    ? parseFloat(cs.borderTopWidth||0)+parseFloat(cs.borderBottomWidth||0)
+    : 0;
+  ta.style.height='auto';
+  ta.style.height=(ta.scrollHeight+borders)+'px';
+}
+const autosizeAllEps=()=>$$('.r-eps').forEach(autosizeEps);
+// Ширина меняется не только с окном, но и при сворачивании бокового меню.
+// Отслеживаем только ширину: изменение высоты самих полей не запускает цикл.
+let routerTableWidth=0;
+new ResizeObserver(([entry])=>{
+  const width=entry.contentRect.width;
+  if(width===routerTableWidth)return;
+  routerTableWidth=width;
+  if(width)requestAnimationFrame(autosizeAllEps);
+}).observe($('#routersBox'));
+
+// id по образцу уже заведённых: vendor+device без пробелов (Netcraze+Ultra -> NetcrazeUltra).
+function suggestRouterId(idn){
+  const base=((idn.vendor||'')+(idn.device||'')).replace(/[^A-Za-z0-9]/g,'')||(idn.hostname||'').replace(/[^A-Za-z0-9]/g,'');
+  if(!base)return '';
+  if(!CONFIG.routers[base])return base;
+  return idn.serialTail?base+idn.serialTail:base;
+}
+
+async function detectRouter(tr){
+  const btn=$('.r-detect',tr), info=$('.r-info',tr._detail);
+  const endpoints=$('.r-eps',tr).value.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(!endpoints.length){toast('Сначала укажите endpoint',true);return;}
+
+  const old=btn.textContent;
+  btn.disabled=true; btn.textContent='…';
+  try{
+    const {identity:idn}=await api('/api/router-identity',{
+      endpoints,username:$('.r-user',tr).value,password:$('.r-pass',tr).value,insecure:$('.r-insec',tr).checked,previousRouter:$('.r-id',tr).dataset.oldId,
+    });
+    const parts=[idn.description||idn.model].filter(Boolean);
+    if(idn.firmware)parts.push('прошивка '+idn.firmware);
+    if(idn.serialTail)parts.push('S/N …'+idn.serialTail);
+    if(idn.hostname)parts.push('hostname: '+idn.hostname);
+    info.textContent=parts.join(' · ');
+    tr._detail.classList.add('show');
+
+    const inp=$('.r-id',tr);
+    if(inp.value.trim()){toast('Роутер определён');return;}
+    const sug=suggestRouterId(idn);
+    if(sug){inp.value=sug;updateRouterSummary(tr);markDirty('access');toast('Роутер определён: '+sug);}
+    else toast('Роутер определён, но имя подобрать не вышло',true);
+  }catch(e){
+    info.textContent='';
+    tr._detail.classList.remove('show');
+    toast(e.message,true);
+  }finally{
+    btn.disabled=false; btn.textContent=old;
+  }
+}
+
+function routerRow(id,r){
+  const eps=(r.endpoints||(r.endpoint?[r.endpoint]:[])).join('\n');
+  const tr=document.createElement('details');
+  tr.className='router-row access-card';tr.open=!id;
+  tr.innerHTML=`
+    <summary>${accessIcon(true)}<div class="access-summary-main"><strong class="access-title"></strong><span class="access-subtitle r-summary-host"></span></div><div class="access-summary-meta"><span class="access-tag r-summary-addresses"></span></div><span class="access-chevron" aria-hidden="true">›</span></summary>
+    <div class="access-editor"><div class="access-form-grid">
+      <label class="access-field">Название роутера<input class="r-id" value="${esc(id)}" data-old-id="${esc(id)}" placeholder="Например, Keenetic Ultra"></label>
+      <label class="access-field">Адреса подключения<textarea class="r-eps" rows="1" wrap="soft" spellcheck="false" placeholder="http://192.168.1.1">${esc(eps)}</textarea><small>По одному в строке, в порядке подключения: сначала LAN, затем облако.</small></label>
+      <label class="access-field">Логин<input class="r-user" value="${esc(r.username||'')}" autocomplete="off"></label>
+      <label class="access-field">Пароль<input class="r-pass" type="password" value="${esc(r.password||'')}" autocomplete="off"></label>
+    </div>
+    <details class="access-advanced"><summary>Дополнительные параметры</summary>
+      <label class="access-check"><input type="checkbox" class="r-insec" ${r.insecure===true?'checked':''}><span>Игнорировать ошибки сертификата</span></label>
+    </details>
+    <div class="access-identity"><div class="muted r-info"></div></div>
+    <div class="access-footer"><button class="sm r-detect">Определить роутер</button><button class="sm danger r-del">Удалить роутер</button></div>
+    </div>`;
+  tr._detail=$('.access-identity',tr);
+  tr.addEventListener('input',()=>updateRouterSummary(tr));
+  $('.r-del',tr).onclick=async()=>{
+    if(!await showConfirm(`Удалить роутер «${esc($('.r-id',tr).value||'Новый роутер')}»? Изменение вступит в силу после сохранения.`))return;
+    markDirty('access');tr.remove();updateAccessCounts();
+  };
+  $('.r-detect',tr).onclick=()=>detectRouter(tr);
+
+  const eta=$('.r-eps',tr);
+  eta.addEventListener('input',()=>autosizeEps(eta));
+  updateRouterSummary(tr);openAccessCard(tr);
+  requestAnimationFrame(()=>autosizeEps(eta));
+  return tr;
+}
+
+function updateRouterSummary(tr){
+  $('.access-title',tr).textContent=$('.r-id',tr).value.trim()||'Новый роутер';
+  const addresses=$('.r-eps',tr).value.split('\n').map(s=>s.trim()).filter(Boolean);
+  $('.r-summary-host',tr).textContent=addresses[0]||'Адрес не указан';
+  $('.r-summary-addresses',tr).textContent=addresses.length>1?`Адресов: ${addresses.length}`:'Keenetic / Netcraze';
+}
+
+function renderAccess(){
+  const pb=$('#panelsBox');pb.innerHTML='';
+  entityNames('servers').forEach(id=>pb.appendChild(serverBlock(id,CONFIG.servers[id])));
+
+  const rb=$('#routersBox');
+  rb.innerHTML='';
+  entityNames('routers').forEach(id=>{
+    const tr=routerRow(id,CONFIG.routers[id]);
+    rb.appendChild(tr);
+  });
+  updateAccessCounts();
+  requestAnimationFrame(autosizeAllEps);
+}
+
+function collectAccess(){
+  const servers=Object.create(null);
+  const displayOrder={...CONFIG.displayOrder,servers:[],routers:[]};
+  const panelRenames=Object.create(null);
+  $$('#panelsBox > .server-block').forEach(d=>{
+    const inp=$('.s-id',d);
+    const id=inp.value.trim();
+    const oldId=inp.dataset.oldId||'';
+    if(!id){selectAccess('servers');d.open=true;inp.focus();throw new Error('Укажите название сервера');}
+    if(Object.hasOwn(servers,id)){selectAccess('servers');d.open=true;inp.focus();throw new Error(`Сервер «${id}» уже существует`);}
+    const connections=Object.create(null);
+    $$('.conn-row',d).forEach(r=>{
+      const cid=r.dataset.cid;
+      if(!cid)return;
+      connections[cid]={...(CONFIG.servers[oldId]?.connections?.[cid]||{}),type:$('.c-type',r).value,url:$('.c-url',r).value.trim(),username:$('.c-user',r).value,password:$('.c-pass',r).value,insecure:$('.c-insec',r).checked};
+    });
+    const domain=$('.s-domain',d).value.trim();
+    const useDomain=$('.s-use-domain',d).checked;
+    if(useDomain&&!domain){selectAccess('servers');d.open=true;$('.s-domain',d).focus();throw new Error(`Сервер «${id}»: укажите доменное имя`);}
+    servers[id]={...(CONFIG.servers[oldId]||{}),host:$('.s-host',d).value.trim(),domain,useDomain,connections};
+    displayOrder.servers.push(id);
+    if(oldId&&oldId!==id)panelRenames[oldId]=id;
+  });
+
+  const routers=Object.create(null);
+  const routerRenames=Object.create(null);
+  $$('#routersBox .router-row').forEach(d=>{
+    const inp=$('.r-id',d);
+    const id=inp.value.trim();
+    const oldId=inp.dataset.oldId||'';
+    if(!id){selectAccess('routers');d.open=true;inp.focus();throw new Error('Укажите название роутера');}
+    if(Object.hasOwn(routers,id)){selectAccess('routers');d.open=true;inp.focus();throw new Error(`Роутер «${id}» уже существует`);}
+    routers[id]={...(CONFIG.routers[oldId]||{}),endpoints:$('.r-eps',d).value.split('\n').map(s=>s.trim()).filter(Boolean),username:$('.r-user',d).value,password:$('.r-pass',d).value,insecure:$('.r-insec',d).checked};
+    displayOrder.routers.push(id);
+    if(oldId&&oldId!==id)routerRenames[oldId]=id;
+  });
+
+  return {servers,routers,panelRenames,routerRenames,displayOrder};
+}
+
+$('#addPanel').onclick=()=>{
+  markDirty('access');
+  const card=serverBlock('',{host:'',connections:{wg:{type:'wg-easy',url:'',username:'admin',password:'',insecure:false}}});
+  $('#panelsBox').appendChild(card);updateAccessCounts();$('.s-id',card).focus();
+};
+$('#addRouter').onclick=()=>{
+  markDirty('access');
+  const body=$('#routersBox');
+  const tr=routerRow('',{endpoints:[],username:'admin',password:'',insecure:false});
+  body.appendChild(tr);
+  updateAccessCounts();$('.r-id',tr).focus();
+  autosizeEps($('.r-eps',tr));
+};
+
+
+/* несохранённые изменения */
+// Панель сохранения появляется на первой же правке и знает, какую вкладку сохранять.
+let DIRTY_TAB=null;
+function markDirty(tab){
+  DIRTY_TAB=tab;
+  $('#saveBar').classList.add('show');
+}
+function clearDirty(){
+  DIRTY_TAB=null;
+  $('#saveBar').classList.remove('show');
+}
+['input','change'].forEach(ev=>document.addEventListener(ev,e=>{
+  const sec=e.target.closest&&e.target.closest('#tab-access');
+  if(sec)markDirty(sec.id==='tab-mappings'?'mappings':'access');
+},true));
+
+$('#saveBarSave').onclick=()=>saveAll(DIRTY_TAB||'access');
+$('#saveBarCancel').onclick=async()=>{
+  const ok=await showConfirm('Отменить несохранённые изменения?');
+  if(!ok)return;
+  await loadCfg();
+  toast('Изменения отменены');
+};
+
+/* save / import / export */
+async function saveAll(type){
+  try{
+    let cfg, accRenames={};
+    // Переименование сервера/роутера тянет за собой ссылки в маппингах.
+    const applyRenames = (list, acc) => list.map(m => ({
+      ...m,
+      server: acc.panelRenames[m.server] || m.server,
+      router: acc.routerRenames[m.router] || m.router,
+    }));
+
+    if (type === 'access') {
+      const acc = collectAccess();
+      accRenames={servers:acc.panelRenames,routers:acc.routerRenames};
+      cfg = { ...CONFIG, servers: acc.servers, routers: acc.routers, displayOrder: acc.displayOrder, mappings: applyRenames(CONFIG.mappings, acc) };
+    } else if (type === 'mappings') {
+      cfg = { ...CONFIG, mappings: collectMappings() };
+    } else {
+      const acc = collectAccess();
+      accRenames={servers:acc.panelRenames,routers:acc.routerRenames};
+      cfg = { ...CONFIG, servers: acc.servers, routers: acc.routers, displayOrder: acc.displayOrder, mappings: applyRenames(collectMappings(), acc) };
+    }
+    const saved=await api('/api/config',{config:cfg,renames:accRenames});CONFIG=saved.config;renderMappings();renderAccess();clearDirty();toast('Сохранено ✓');}
+  catch(e){toast('Ошибка: '+e.message,true);}
+}
+function downloadText(text,name,type){const b=new Blob([text],{type:type||'text/plain'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);}
+$('#exportFormat').onchange=()=>{
+  const encrypted=$('#exportFormat').value==='enc';
+  $('#exportPasswordGroup').hidden=!encrypted;$('#encPass').required=encrypted;
+  $('#exportHint').textContent=encrypted?'Для восстановления понадобится этот пароль.':'Файл содержит логины и пароли в открытом виде.';
+};
+$('#exportForm').onsubmit=async(e)=>{
+  e.preventDefault();const btn=$('#exportBtn');btn.disabled=true;btn.textContent='Подготовка копии…';
+  try{
+    if($('#exportFormat').value==='enc'){
+      const pass=$('#encPass').value;
+      if(!pass){$('#encPass').focus();throw new Error('Введите пароль резервной копии');}
+      const{data}=await api('/api/export-enc',{passphrase:pass});
+      downloadText(data,'keenetic-az-sync.config.enc');
+    }else{
+      const text=await api('/api/export',null,60000,'text');
+      downloadText(text,'keenetic-az-sync.config.yaml','application/x-yaml;charset=utf-8');
+    }
+    toast('Копия подготовлена к скачиванию');
+  }catch(err){toast('Не удалось скачать копию: '+err.message,true);}
+  finally{btn.disabled=false;btn.textContent='Скачать копию';}
+};
+
+let importMode='file',importFileText='',importFileVersion=0,importReading=false,importBusy=false;
+const selectedImportText=()=>importMode==='file'?importFileText:$('#importText').value;
+function updateImportState(){
+  const text=selectedImportText().trim(),encrypted=text.startsWith('AWGSYNC-ENC-v1:');
+  $('#importPasswordGroup').hidden=!encrypted;$('#impPass').required=encrypted;
+  $('#importBtn').disabled=importBusy||!text||(importMode==='file'&&importReading);
+}
+function selectImportSource(mode){
+  importMode=mode;
+  $('#importFileGroup').hidden=mode!=='file';$('#importTextGroup').hidden=mode!=='text';
+  $('#importFromFile').setAttribute('aria-pressed',String(mode==='file'));
+  $('#importFromText').setAttribute('aria-pressed',String(mode==='text'));
+  updateImportState();
+}
+$('#importFromFile').onclick=()=>selectImportSource('file');
+$('#importFromText').onclick=()=>selectImportSource('text');
+$('#importText').oninput=updateImportState;
+$('#importFile').onchange=async(e)=>{
+  const file=e.target.files[0],version=++importFileVersion;
+  importFileText='';importReading=!!file;$('#impPass').value='';
+  $('#importFileName').textContent=file?'Чтение файла…':'Выберите файл резервной копии';updateImportState();
+  if(!file)return;
+  try{
+    const text=await file.text();if(version!==importFileVersion)return;
+    importFileText=text;$('#importFileName').textContent=file.name;
+    if(!text.trim())toast('Выбранный файл пуст',true);
+  }catch(err){if(version===importFileVersion){$('#importFileName').textContent='Не удалось прочитать файл';toast('Ошибка чтения: '+err.message,true);}}
+  finally{if(version===importFileVersion){importReading=false;updateImportState();}}
+};
+$('#importForm').onsubmit=async(e)=>{
+  e.preventDefault();const text=selectedImportText().trim();if(!text||importBusy)return;
+  const enc=text.startsWith('AWGSYNC-ENC-v1:'),pass=$('#impPass').value;
+  if(enc&&!pass){$('#impPass').focus();toast('Введите пароль резервной копии',true);return;}
+  const btn=$('#importBtn');importBusy=true;updateImportState();
+  try{
+    const ok=await showConfirm('Восстановить конфигурацию?<br><span class="muted">Текущие серверы, роутеры и маппинги будут заменены настройками из копии.</span>','Восстановить');
+    if(!ok)return;
+    btn.textContent='Восстановление…';
+    const res=enc?await api('/api/import-enc',{text,passphrase:pass}):await api('/api/import',{text});
+    await loadCfg();$('#impPass').value='';toast(`Настройки восстановлены · маппингов: ${res.mappings}`);
+  }catch(err){toast('Не удалось восстановить: '+err.message,true);}
+  finally{importBusy=false;btn.textContent='Восстановить настройки';updateImportState();}
+};
+
+/* CONVERTER — обработка целиком в браузере. */
+(function(){
+  const REQ_ALLOWED='77.88.8.8/32', REQ_ROUTE='route add 14.16.0.0 mask 255.252.0.0 0.0.0.0 :: rem AntiZapretAWG', REQ_DNS='77.88.8.8';
+  let routesText='',routesName='routes.bat',confText='',confName='config.patched.conf',fileVersion=0;
+  const el=id=>document.getElementById(id);
+  const setStatus=(message,state='success')=>{el('cvStatus').textContent=message;el('cvStatusPanel').hidden=!message;el('cvStatusPanel').dataset.state=state;};
+  const escRe=v=>v.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  function getVal(raw,key,req=true){const m=raw.match(new RegExp('^\\s*'+escRe(key)+'\\s*=\\s*(.+?)\\s*$','im'));if(!m){if(req)throw new Error("ключ '"+key+"' не найден");return null;}return m[1].trim();}
+  function cidrMask(p){if(!Number.isInteger(p)||p<0||p>32)throw new Error('плохой префикс /'+p);const o=[];let b=p;for(let i=0;i<4;i++){const a=Math.min(Math.max(b,0),8);o.push(a===0?0:(0xff<<(8-a))&0xff);b-=8;}return o.join('.');}
+  const allowed=raw=>getVal(raw,'AllowedIPs').split(',').map(s=>s.trim()).filter(Boolean);
+  function addrIp(raw){const a=getVal(raw,'Address').split(',')[0].trim().split('/')[0].trim();if(!a)throw new Error('плохой Address');return a;}
+  function patch(raw){const re=/^(\s*AllowedIPs\s*=\s*)(.*?)(\s*)$/im;const m=raw.match(re);if(!m)throw new Error("'AllowedIPs' не найден");const a=m[2].split(',').map(s=>s.trim()).filter(Boolean);const has=a.some(x=>x.toLowerCase()===REQ_ALLOWED.toLowerCase());if(!has)a.push(REQ_ALLOWED);return{text:raw.replace(re,m[1]+a.join(', ')+m[3]),added:!has};}
+  function toRoute(c){const p=c.split('/');if(p.length!==2)throw new Error('плохой CIDR '+c);const pt=p[1].trim();if(!/^\d+$/.test(pt))throw new Error('плохой префикс '+c);return 'route add '+p[0].trim()+' mask '+cidrMask(Number(pt))+' 0.0.0.0 :: rem AntiZapretAWG';}
+  function asc(raw){const v=['Jc','Jmin','Jmax','S1','S2','H1','H2','H3','H4'].map(k=>getVal(raw,k,false));return v.some(x=>x===null)?'':'interface Wireguard0 wireguard asc '+v.join(' ');}
+  const baseName=fn=>{const i=fn.lastIndexOf('.');return i>0?fn.slice(0,i):fn;};
+  async function handle(file){
+    const version=++fileVersion;
+    el('cvDlConf').disabled=el('cvDlBat').disabled=true;
+    for(const id of ['cvAscPanel','cvPrevPanel','cvResults'])el(id).hidden=true;
+    el('cvEmpty').hidden=false;
+    for(const id of ['cvAsc','cvConf','cvRoutes'])el(id).value='';
+    for(const preview of el('cvPrevPanel').querySelectorAll('details'))preview.open=false;
+    routesText=confText='';el('cvCopyAsc').textContent='Копировать';
+    el('cvFileName').textContent=file?file.name:'Выберите конфигурацию AmneziaWG';
+    if(!file){setStatus('');return;}
+    setStatus('Обработка файла…','loading');
+    try{
+      const raw=await file.text();if(version!==fileVersion)return;
+      if(!raw.trim())throw new Error('файл пуст');
+      const pp=patch(raw);const a=allowed(pp.text);const aip=addrIp(pp.text);
+      const lines=a.filter(c=>c.toLowerCase()!==REQ_ALLOWED.toLowerCase()).map(toRoute);
+      const dnsLine='route add '+REQ_DNS+' mask 255.255.255.255 '+aip+' :: rem AntiZapretDNS';
+      if(!lines.some(l=>l.toLowerCase()===dnsLine.toLowerCase()))lines.unshift(dnsLine);
+      if(!lines.some(l=>l.toLowerCase()===REQ_ROUTE.toLowerCase()))lines.push(REQ_ROUTE);
+      routesText=lines.join('\r\n')+'\r\n';routesName=baseName(file.name)+'.routes.bat';
+      confText=pp.text;confName=baseName(file.name)+'.patched.conf';
+      el('cvRoutes').value=routesText;el('cvConf').value=confText;el('cvPrevPanel').hidden=false;
+      const ascLine=asc(pp.text);if(ascLine){el('cvAsc').value=ascLine;el('cvAscPanel').hidden=false;}
+      el('cvEmpty').hidden=true;el('cvResults').hidden=false;
+      el('cvDlConf').disabled=el('cvDlBat').disabled=false;
+      setStatus('Готово · подсетей в AllowedIPs: '+a.length+'. '+(pp.added?'DNS-адрес добавлен.':'DNS-адрес уже присутствует.'));
+    }catch(e){if(version===fileVersion)setStatus('Не удалось преобразовать файл: '+e.message,'error');}
+  }
+  el('cvFile').addEventListener('change',e=>handle(e.target.files[0]));
+  el('cvDlConf').onclick=()=>downloadText(confText,confName,'text/plain;charset=utf-8');
+  el('cvDlBat').onclick=()=>downloadText(routesText,routesName,'application/x-bat;charset=us-ascii');
+  el('cvCopyAsc').onclick=async()=>{
+    const v=el('cvAsc').value;if(!v)return;
+    try{await navigator.clipboard.writeText(v);el('cvCopyAsc').textContent='Скопировано';setTimeout(()=>el('cvCopyAsc').textContent='Копировать',1500);}
+    catch{el('cvAsc').select();toast('Не удалось скопировать автоматически. Нажмите Ctrl+C, чтобы скопировать выделенную команду.',true);}
+  };
+})();
+
+async function loadCfg(){try{const{config}=await api('/api/config');CONFIG=config;renderMappings();renderAccess();clearDirty();if(AUTHENTICATED&&$('#tab-traffic').classList.contains('show'))startTrafficMonitor();return true;}catch(e){toast('Не загрузить конфиг: '+e.message,true);return false;}}
+const _act=$('.rail .nav.active');$('#pgSub').textContent=_act.dataset.sub;
+async function loadApplication(){
+  try{const session=await api('/api/session');AUTHENTICATED=session.authenticated;if(!AUTHENTICATED){showLoginScreen();return;}hideLoginScreen();if(await loadCfg())await loadSync();}
+  catch(e){toast('Ошибка подключения: '+e.message,true);showLoginScreen();}
+}
+loadApplication();
+updateLogoutButtonVisibility();
+
+/* sidebar toggle */
+const sidebar = $('#sidebar');
+const sidebarToggle = $('#sidebarToggle');
+const sidebarBackdrop = $('#sidebarBackdrop');
+const sidebarMobile = matchMedia('(max-width:768px)');
+function setSidebarCollapsed(collapsed) {
+  document.documentElement.dataset.sidebarCollapsed = String(collapsed);
+  sidebar.classList.toggle('collapsed', collapsed);
+  sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+  const label = collapsed ? 'Развернуть меню' : 'Свернуть меню';
+  sidebarToggle.setAttribute('aria-label', label);
+  sidebarToggle.title = label;
+  $('span', sidebarToggle).textContent = label;
+  sidebarBackdrop.hidden = !sidebarMobile.matches || collapsed;
+}
+function resetSidebarForViewport() {
+  setSidebarCollapsed(sidebarMobile.matches || localStorage.getItem('sidebar_collapsed') === 'true');
+}
+resetSidebarForViewport();
+// Enable user-triggered animations only after the initial layout is painted.
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  document.documentElement.dataset.sidebarReady = 'true';
+}));
+sidebarMobile.addEventListener('change', resetSidebarForViewport);
+sidebarToggle.onclick = () => {
+  const collapsed = !sidebar.classList.contains('collapsed');
+  setSidebarCollapsed(collapsed);
+  if (!sidebarMobile.matches) localStorage.setItem('sidebar_collapsed', String(collapsed));
+};
+sidebarBackdrop.onclick = () => { setSidebarCollapsed(true); sidebarToggle.focus(); };
+$$('.rail .nav').forEach(button => button.addEventListener('click', () => {
+  if (sidebarMobile.matches) setSidebarCollapsed(true);
+}));
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && sidebarMobile.matches && !sidebar.classList.contains('collapsed')) {
+    setSidebarCollapsed(true);
+    sidebarToggle.focus();
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+name: Checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: node
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm test
+      - name: Check public source package
+        run: python ../scripts/prepare-release.py --check
+
+  docker:
+    runs-on: ubuntu-latest
+    env:
+      BASIC_AUTH_USER: ci-user
+      BASIC_AUTH_PASS: ci-test-only-password
+      AWG_SYNC_DOMAIN: sync.example.com
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate standalone Compose templates
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f deploy/compose.https.yml config --quiet
+      - run: docker build -t awg-sync:ci node
+      - name: Test the built non-root image without external networking
+        run: docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,noexec,nosuid,size=16m -v "$PWD/node/test:/app/test:ro" awg-sync:ci node --test

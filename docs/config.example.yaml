@@ -1,0 +1,49 @@
+# Пример заполненных настроек: замените адреса, имена и пароли своими.
+# Все данные ниже вымышленные. Адрес панели и домен для VPN задаются отдельно.
+servers:
+  vpn-eu:
+    host: 192.0.2.10
+    domain: vpn.example.com
+    useDomain: false
+    connections:
+      awg:
+        type: wg-easy
+        url: https://wg.example.com:5443
+        username: admin
+        password: REPLACE_PANEL_PASSWORD
+        insecure: false
+      ovpn:
+        type: openvpn-ui
+        url: https://ovpn.example.com:3443
+        username: admin
+        password: REPLACE_PANEL_PASSWORD
+        insecure: false
+
+routers:
+  home:
+    endpoints:
+      - http://192.168.1.1
+      - https://your-router.example.com
+    username: admin
+    password: REPLACE_ROUTER_PASSWORD
+    insecure: false
+
+mappings:
+  - name: home-eu-awg
+    router: home
+    server: vpn-eu
+    connection: awg
+    client: HomeRouter
+    interface: AntizapretAWG_EU
+    enabled: true
+  - name: home-eu-ovpn
+    router: home
+    server: vpn-eu
+    connection: ovpn
+    client: HomeRouter
+    interface: AntizapretOVPN_EU
+    enabled: true
+
+displayOrder:
+  servers: [vpn-eu]
+  routers: [home]

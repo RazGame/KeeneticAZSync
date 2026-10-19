@@ -1,0 +1,21 @@
+{
+  "name": "keenetic-az-sync",
+  "version": "0.1.0",
+  "description": "One-click sync of WG-Easy (AmneziaWG) and openvpn-ui (OpenVPN) configs to Keenetic/Netcraze routers via RCI",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "awgsync": "bin/awgsync.js"
+  },
+  "scripts": {
+    "test": "node --test",
+    "sync": "node bin/awgsync.js",
+    "gui": "node bin/awgsync.js serve"
+  },
+  "dependencies": {
+    "js-yaml": "^4.3.2"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  }
+}

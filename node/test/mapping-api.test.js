@@ -1,0 +1,96 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { once } from 'node:events';
+import { startServer } from '../src/server.js';
+import { saveConfig, loadConfig } from '../src/config.js';
+import { OpenVpnUi } from '../src/openvpnui.js';
+import { Keenetic } from '../src/keenetic.js';
+import { PASSWORD_MASK } from '../src/config-store.js';
+
+test('wizard saves just its mapping, previews without writing, rejects stale plan, then applies', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awg-mapping-api-'));
+  const file = path.join(dir, 'config.yaml');
+  const config = { extra: 'preserve', servers: { VPS: { host: '192.0.2.1', connections: { ovpn: { type: 'openvpn-ui', url: 'http://panel', username: 'admin', password: 'preserve' } } } }, routers: { Router: { endpoint: 'http://router' } }, mappings: [] };
+  saveConfig(file, config);
+  let current = [], remote = '192.0.2.1', writes = 0, creates = 0;
+  const text = () => `client\nremote ${remote} 1194\n<ca>\ntest\n</ca>\n`;
+  t.mock.method(OpenVpnUi.prototype, 'login', async () => {});
+  t.mock.method(OpenVpnUi.prototype, 'createClient', async name => { creates++; return { name }; });
+  t.mock.method(OpenVpnUi.prototype, 'configByName', async () => text());
+  t.mock.method(Keenetic.prototype, 'connect', async () => 'http://router');
+  t.mock.method(Keenetic.prototype, 'openvpnInterfaces', async () => current);
+  t.mock.method(Keenetic.prototype, 'writeOpenvpnConfig', async (name, config) => { writes++; current = [{ name, description: 'VPN', config }]; });
+  t.mock.method(Keenetic.prototype, 'rci', async () => { writes++; return []; });
+  const server = startServer(file, 0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(async () => { server.closeAllConnections(); await new Promise(r => server.close(r)); fs.rmSync(dir, { recursive: true }); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const headers = { 'Content-Type': 'application/json' };
+  if (process.env.BASIC_AUTH_USER && process.env.BASIC_AUTH_PASS) headers.Authorization = `Basic ${Buffer.from(`${process.env.BASIC_AUTH_USER}:${process.env.BASIC_AUTH_PASS}`).toString('base64')}`;
+  const post = async (url, data) => { const r = await fetch(base + url, { method: 'POST', headers, body: JSON.stringify(data) }); return { status: r.status, ...await r.json() }; };
+  assert.equal((await post('/api/panel-client-create', { server: 'VPS', connection: 'ovpn', name: 'new' })).client.name, 'new');
+  assert.equal(creates, 1);
+  const saved = await post('/api/mapping-save', { mapping: { server: 'VPS', connection: 'ovpn', client: 'new', router: 'Router', interface: 'VPN', enabled: false } });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.config.extra, 'preserve');
+  assert.equal(saved.config.servers.VPS.connections.ovpn.password, PASSWORD_MASK);
+  assert.equal(loadConfig(file).servers.VPS.connections.ovpn.password, 'preserve');
+  const name = saved.mapping.name;
+  const plan = await post('/api/plan', { name, interfaceMode: 'new' });
+  assert.equal(plan.plan.mode, 'create'); assert.equal(writes, 0);
+  assert.match((await post('/api/plan', { name, interfaceMode: 'existing' })).error, /больше не найден/);
+  remote = '192.0.2.2';
+  assert.equal((await post('/api/apply', { name, interfaceMode: 'new', planToken: plan.planToken })).status, 409);
+  assert.equal(writes, 0);
+  const fresh = await post('/api/plan', { name, interfaceMode: 'new' });
+  const applied = await post('/api/apply', { name, interfaceMode: 'new', planToken: fresh.planToken });
+  assert.equal(applied.result.ok, true); assert.ok(writes > 0);
+  assert.match((await post('/api/plan', { name, interfaceMode: 'new' })).error, /уже существует/);
+  // An existing interface without a description is selectable by its system name.
+  current[0].description = '';
+  await post('/api/mapping-save', { previousName: name, mapping: { ...saved.mapping, interface: current[0].name } });
+  assert.equal((await post('/api/plan', { name, interfaceMode: 'existing' })).plan.mode, 'noop');
+  const beforeRemove = writes;
+  await post('/api/mapping-remove', { name });
+  assert.equal(loadConfig(file).mappings.length, 0); assert.equal(writes, beforeRemove);
+});
+
+test('activation rechecks the previewed active VPN set and serializes writes on one router', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awg-activation-api-'));
+  const file = path.join(dir, 'config.yaml');
+  const cfg = { servers: { VPS: { connections: { ovpn: { type: 'openvpn-ui', url: 'http://panel' } } } }, routers: { Router: { endpoint: 'http://router' } }, mappings: [
+    { name: 'old', server: 'VPS', connection: 'ovpn', router: 'Router', client: 'old', interface: 'OldAWG' },
+    { name: 'new', server: 'VPS', connection: 'ovpn', router: 'Router', client: 'new', interface: 'NewOVPN' },
+  ] };
+  saveConfig(file, cfg);
+  let active = true, current = [], writes = 0, entered, release;
+  const started = new Promise(r => entered = r), gate = new Promise(r => release = r);
+  t.mock.method(OpenVpnUi.prototype, 'login', async () => {});
+  t.mock.method(OpenVpnUi.prototype, 'configByName', async () => 'client\nremote vpn.example.com 1194\n<ca>\ntest\n</ca>\n');
+  t.mock.method(Keenetic.prototype, 'connect', async () => 'http://router');
+  t.mock.method(Keenetic.prototype, 'openvpnInterfaces', async () => current);
+  t.mock.method(Keenetic.prototype, 'interfaceStates', async () => ({ OldAWG: { name: 'Wireguard0', description: 'OldAWG', up: active } }));
+  t.mock.method(Keenetic.prototype, 'rci', async () => { writes++; return []; });
+  t.mock.method(Keenetic.prototype, 'writeOpenvpnConfig', async (name, config) => { entered(); await gate; current = [{ name, description: 'NewOVPN', config, enabled: true }]; });
+  t.mock.method(Keenetic.prototype, 'switchActiveInterface', async () => {});
+  const server = startServer(file, 0, '127.0.0.1'); await once(server, 'listening');
+  t.after(async () => { release(); server.closeAllConnections(); await new Promise(r => server.close(r)); fs.rmSync(dir, { recursive: true }); });
+  const headers = { 'Content-Type': 'application/json' };
+  if (process.env.BASIC_AUTH_USER && process.env.BASIC_AUTH_PASS) headers.Authorization = `Basic ${Buffer.from(`${process.env.BASIC_AUTH_USER}:${process.env.BASIC_AUTH_PASS}`).toString('base64')}`;
+  const post = async (url, body) => { const res = await fetch(`http://127.0.0.1:${server.address().port}` + url, { method: 'POST', headers, body: JSON.stringify(body) }); return { status: res.status, ...await res.json() }; };
+  const first = await post('/api/plan', { name: 'new', activate: true });
+  assert.equal(first.plan.meta.activation.disable[0].name, 'Wireguard0'); assert.equal(writes, 0);
+  active = false;
+  assert.equal((await post('/api/apply', { name: 'new', activate: true, planToken: first.planToken })).status, 409);
+  assert.equal(writes, 0);
+  const fresh = await post('/api/plan', { name: 'new', activate: true });
+  const applying = post('/api/apply', { name: 'new', activate: true, planToken: fresh.planToken });
+  await started;
+  assert.equal((await post('/api/apply', { name: 'new', activate: true })).status, 409);
+  assert.equal((await post('/api/router-active', { router: 'Router', mapping: 'new' })).status, 409);
+  release(); assert.equal((await applying).result.ok, true);
+  assert.equal((await post('/api/router-active', { router: 'Router', mapping: 'new' })).status, 200);
+});

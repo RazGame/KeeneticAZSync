@@ -1,0 +1,63 @@
+.map-toolbar { display:flex;justify-content:flex-end;margin-bottom:20px; }
+.map-router { background:#e3eaf1;border:1px solid var(--line);border-radius:9px;margin-bottom:22px;overflow:hidden; }
+.map-router-head { padding:18px;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap; }
+.map-router-identity { display:flex;align-items:center;gap:12px;min-width:0; }
+.map-router-identity .access-symbol { background:#fff;flex:none; }
+.map-router-label,.map-router-count { font-size:12px;color:var(--muted); }
+.map-router-name { font-size:14px;overflow-wrap:anywhere; }
+.map-connections { background:#fff;margin:0 12px 12px;border:1px solid var(--line);border-radius:6px;overflow:hidden; }
+.map-item { display:flex;justify-content:space-between;align-items:center;gap:16px;padding:15px 16px; }
+.map-item + .map-item { border-top:1px solid var(--line); }
+.map-item-main { min-width:0; }
+.map-item-title { display:flex;align-items:center;gap:8px;flex-wrap:wrap; }
+.map-protocol { font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:1px 6px; }
+.map-path { font-size:13px;color:var(--muted);overflow-wrap:anywhere;margin-top:5px; }
+.map-item-actions { display:flex;align-items:center;gap:12px;flex:none; }
+.map-sync-label { font-size:12px;color:var(--muted); }
+.map-empty { padding:22px 16px;color:var(--muted); }
+.mw-back { margin-bottom:18px; }
+.mw-heading { display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap; }
+.mw-heading h2 { margin:0;font-size:22px; }
+.mw-box { background:#fff;border:1px solid var(--line);border-radius:9px;overflow:hidden; }
+.mw-steps { display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:18px 24px;border-bottom:1px solid var(--line);list-style:none;margin:0; }
+.mw-step { display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted); }
+.mw-step span { display:grid;place-items:center;width:25px;height:25px;border-radius:50%;border:1px solid var(--line);flex:none; }
+.mw-step.current { color:var(--accent);font-weight:600; }
+.mw-step.current span { border-color:var(--accent);background:#e6f2ff; }
+.mw-body { padding:24px; }
+.mw-body h3 { margin:0 0 8px;font-size:18px;text-transform:none;letter-spacing:normal; }
+.mw-body p { color:var(--muted);margin:0 0 20px; }
+.mw-fields { display:grid;gap:18px;max-width:760px; }
+.mw-field { display:flex;flex-direction:column;gap:7px;font-size:13px;min-width:0; }
+.mw-field input,.mw-field select { width:100%;min-width:0; }
+.mw-hint { color:var(--muted);font-size:12px; }
+.mw-modes { display:flex;gap:8px;margin:20px 0;flex-wrap:wrap; }
+.mw-modes button[aria-pressed="true"] { color:var(--accent);background:#e6f2ff;border-color:var(--accent); }
+.mw-note { background:#eff6ff;color:#315f8d;border-radius:6px;padding:12px 14px;font-size:13px;margin-top:18px; }
+.mw-error { color:#b32635;background:#fff1f2;border-radius:6px;padding:12px 14px;margin-top:16px;overflow-wrap:anywhere; }
+.mw-footer { display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:16px 24px;border-top:1px solid var(--line); }
+.mw-footer-group { display:flex;gap:8px;flex-wrap:wrap; }
+.mw-review { margin:18px 0; }
+.mw-review > div { display:grid;grid-template-columns:150px minmax(0,1fr);gap:14px;padding:11px 0;border-bottom:1px solid var(--line);font-size:13px; }
+.mw-review dt { color:var(--muted); }
+.mw-review dd { margin:0;overflow-wrap:anywhere; }
+.mw-check { display:flex;align-items:center;gap:9px;font-size:13px; }
+.mw-check input { flex:none; }
+.mw-plan { overflow-wrap:anywhere; }
+.mw-plan .items { max-height:240px;overflow:auto; }
+#mappingEditor[hidden],#mappingOverview[hidden] { display:none; }
+@media(max-width:900px) {
+  .map-item { flex-wrap:wrap; }
+  .map-item-main { flex:1 1 100%; }
+  .map-item-actions { justify-content:space-between;width:100%; }
+}
+@media(max-width:560px) {
+  .map-router-head { padding:14px; }
+  .map-connections { margin:0 8px 8px; }
+  .map-item { padding:14px 12px; }
+  .mw-steps { grid-template-columns:repeat(2,minmax(0,1fr));padding:16px; }
+  .mw-body { padding:18px; }
+  .mw-review > div { grid-template-columns:minmax(0,1fr);gap:4px; }
+  .mw-footer { padding:16px 18px; }
+  .mw-footer button { white-space:normal; }
+}
