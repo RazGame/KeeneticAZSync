@@ -1,5 +1,9 @@
 FROM node:24-alpine
 
+LABEL org.opencontainers.image.source="https://github.com/RazGame/KeeneticAZSync" \
+      org.opencontainers.image.title="AWG Sync" \
+      org.opencontainers.image.description="VPN configuration sync for Keenetic and Netcraze routers"
+
 WORKDIR /app
 
 # Copy dependency definition
@@ -15,7 +19,7 @@ COPY web ./web
 COPY config.example.yaml ./config.example.yaml
 
 # Create directory for mapped config and adjust permissions
-RUN mkdir -p /app/config && chown -R node:node /app
+RUN mkdir -p /app/config && chmod 700 /app/config && chown -R node:node /app
 
 # Run as non-root user
 USER node

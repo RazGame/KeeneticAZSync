@@ -1,12 +1,8 @@
-# AntiZapret v6 integration. Copy to its directory as docker-compose.awg-sync.yml.
-# Use together with the existing AZ Compose files; see docs/antizapret.md.
+# Merge into AntiZapret v6 docker-compose.override.yml; see docs/antizapret.md.
+# Add AWG_SYNC_USER / AWG_SYNC_PASS to AZ's existing .env.
 services:
   awg-sync:
-    image: awg-sync:latest
-    build:
-      context: ${AWG_SYNC_REPO:-../awg-sync}/node
-      dockerfile: Dockerfile
-    container_name: awg-sync
+    image: ghcr.io/razgame/keeneticazsync:latest
     hostname: awg-sync.antizapret
     restart: unless-stopped
     read_only: true
@@ -15,12 +11,10 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
     environment:
-      PORT: "8787"
-      CONFIG_PATH: /app/config/config.yaml
-      BASIC_AUTH_USER: ${AWG_SYNC_USER:?Set AWG_SYNC_USER in .env.awg-sync}
-      BASIC_AUTH_PASS: ${AWG_SYNC_PASS:?Set AWG_SYNC_PASS in .env.awg-sync}
+      BASIC_AUTH_USER: ${AWG_SYNC_USER:-admin}
+      BASIC_AUTH_PASS: ${AWG_SYNC_PASS:?Set AWG_SYNC_PASS in .env}
     volumes:
-      - ./config/awg-sync:/app/config
+      - awg-sync-config:/app/config
     # No public HTTP port. AZ Caddy connects over the shared default network.
 
   https:
@@ -30,3 +24,6 @@ services:
       # Keep PROXY_SERVICE_1..8 from AZ. If 9 is occupied, use the next free
       # consecutive number: Caddy stops reading at the first missing number.
       PROXY_SERVICE_9: AWG Sync:8787:awg-sync.antizapret:8787
+
+volumes:
+  awg-sync-config:
