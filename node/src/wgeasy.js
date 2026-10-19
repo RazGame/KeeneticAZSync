@@ -1,5 +1,6 @@
 // Клиент WG-Easy v15 API: логин (session + cookie), список клиентов, скачивание .conf.
 import { request, createJar } from './util/http.js';
+import { panelLogin } from './panel-login.js';
 
 // WG-Easy отдаёт ошибки JSON-ом с полем message — вытаскиваем его, иначе показываем сырой текст.
 const apiMessage = (text) => {
@@ -16,6 +17,10 @@ export class WgEasy {
   }
 
   async login({ signal } = {}) {
+    return panelLogin(this.url, () => this.authenticate({ signal }), { signal });
+  }
+
+  async authenticate({ signal } = {}) {
     const body = JSON.stringify({ username: this.username, password: this.password, remember: true });
     const post = (path) => request({
       url: this.url + path, method: 'POST', jar: this.jar, insecure: this.insecure, signal,

@@ -1,6 +1,7 @@
 // Клиент openvpn-ui (d3vilh/openvpn-ui): логин формой с XSRF, список сертификатов, скачивание .ovpn.
 // В отличие от WG-Easy тут нет JSON API — только HTML, поэтому разбор намеренно минимальный.
 import { request, createJar } from './util/http.js';
+import { panelLogin } from './panel-login.js';
 
 // Односегментные ссылки вида /certificates/<имя>, которые именами клиентов не являются.
 const RESERVED = new Set(['', 'restart', 'renew', 'revoke', 'add', 'edit', 'download']);
@@ -19,6 +20,10 @@ export class OpenVpnUi {
   }
 
   async login({ signal } = {}) {
+    return panelLogin(this.url, () => this.authenticate({ signal }), { signal });
+  }
+
+  async authenticate({ signal } = {}) {
     const page = await request({ url: this.url + '/login', jar: this.jar, insecure: this.insecure, signal, timeout: 20000 });
     if (page.status !== 200) throw new Error(`openvpn-ui /login HTTP ${page.status}`);
 
