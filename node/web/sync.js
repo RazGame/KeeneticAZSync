@@ -1,5 +1,6 @@
 /* Единая область действий: все связи или отмеченные. Применяем только проверенные планы. */
-const syncView={rows:[],groups:[],busy:false,loading:false,sequence:0,progress:''};
+const syncView={rows:[],groups:[],routers:new Map(),batches:new Map(),queue:[],running:0,get busy(){return this.batches.size>0;},loading:false,sequence:0,progress:''};
+const syncRouterBusy=router=>syncView.routers.has(router)||speedTestBusy(router);
 const syncOptions=()=>({withSecrets:optSecrets(),noRestart:optNoRestart()});
 const syncOptionsKey=()=>JSON.stringify(syncOptions());
 const syncScope=()=>{const selected=syncView.rows.filter(r=>r.checkbox.checked);return selected.length?selected:syncView.rows;};
@@ -7,25 +8,26 @@ const syncNeedsApply=r=>r.plan&&!r.plan.error&&r.plan.mode!=='error'&&r.plan.mod
 const syncStatus=(el,text,kind='')=>{el.className=el.classList.contains('ss-vpn')?'ss-status ss-vpn '+kind:'ss-status ss-config '+kind;el.textContent=text;};
 
 function refreshSyncUi(){
-  const selected=syncView.rows.filter(r=>r.checkbox.checked),scope=syncScope(),changed=scope.filter(syncNeedsApply);
-  const locked=syncView.busy||syncView.loading||speedTestBusy();
+  const selected=syncView.rows.filter(r=>r.checkbox.checked),scope=syncScope(),available=scope.filter(r=>!syncRouterBusy(r.mapping.router)),changed=available.filter(syncNeedsApply);
+  const locked=syncView.loading;
   $('#syncScope').textContent=selected.length?`Выбрано подключений: ${selected.length}`:'Все подключения';
   $('#syncClear').hidden=!selected.length;$('#syncClear').disabled=locked;
-  $('#syncCheck').textContent=selected.length?`Проверить выбранные (${selected.length})`:'Проверить все';
-  $('#syncCheck').disabled=locked||!scope.length;
+  $('#syncCheck').textContent=selected.length?`Проверить выбранные (${available.length})`:available.length<scope.length?`Проверить доступные (${available.length})`:'Проверить все';
+  $('#syncCheck').disabled=locked||!available.length;
   $('#syncApply').textContent=changed.length?`Применить изменения (${changed.length})`:'Применить изменения';
   $('#syncApply').disabled=locked||!changed.length;
   $('#syncApply').classList.toggle('primary',changed.length>0);
   $('#syncCheck').classList.toggle('primary',changed.length===0);
-  $('#syncReload').disabled=locked;
-  $('#swRestart').disabled=$('#swSecrets').disabled=locked;
+  $('#syncReload').disabled=locked||syncView.busy||syncView.routers.size>0;
+  $('#swRestart').disabled=$('#swSecrets').disabled=locked||syncView.busy||syncView.routers.size>0;
   const checked=scope.filter(r=>r.checked).length,errors=scope.filter(r=>r.error).length;
-  $('#syncSummary').textContent=syncView.progress||(syncView.loading?'Загрузка подключений…':checked?`Проверено: ${checked} из ${scope.length} · с изменениями: ${changed.length}${errors?' · ошибок: '+errors:''}`:'Отметьте нужные подключения или проверьте все. Затем примените найденные изменения.');
+  const batches=[...syncView.batches.values()],work=batches.length?`Обработано подключений: ${batches.reduce((n,b)=>n+b.completed,0)} из ${batches.reduce((n,b)=>n+b.total,0)} · роутеров в работе и очереди: ${syncView.routers.size}`:'';
+  $('#syncSummary').textContent=work||syncView.progress||(syncView.loading?'Загрузка подключений…':checked?`Проверено: ${checked} из ${scope.length} · с изменениями: ${changed.length}${errors?' · ошибок: '+errors:''}`:'Отметьте нужные подключения или проверьте все. Затем примените найденные изменения.');
   for(const g of syncView.groups){
     const on=g.rows.filter(r=>r.checkbox.checked).length;
-    g.checkbox.checked=on>0&&on===g.rows.length;g.checkbox.indeterminate=on>0&&on<g.rows.length;g.checkbox.disabled=locked;
+    g.checkbox.checked=on>0&&on===g.rows.length;g.checkbox.indeterminate=on>0&&on<g.rows.length;g.checkbox.disabled=syncView.loading||syncRouterBusy(g.router);
   }
-  for(const r of syncView.rows){r.checkbox.disabled=locked;r.switchButton.disabled=locked;refreshSpeedTestEntry(r);}
+  for(const r of syncView.rows){r.checkbox.disabled=syncView.loading||syncRouterBusy(r.mapping.router);r.switchButton.disabled=r.checkbox.disabled;refreshSpeedTestEntry(r);}
 }
 
 function invalidateSyncPlans(){
@@ -63,7 +65,7 @@ async function refreshSyncRouter(group,sequence=syncView.sequence){
 }
 
 async function loadSync(){
-  if(syncView.busy||syncView.loading)return;
+  if(syncView.busy||syncView.routers.size||syncView.loading)return;
   const sequence=++syncView.sequence;
   syncView.loading=true;syncView.progress='';refreshSyncUi();
   try{
@@ -112,32 +114,59 @@ async function applySyncRow(r,options){
   }catch(e){r.plan=null;r.planToken=null;r.error=true;r.checked=true;r.planBox.textContent=e.message;syncStatus(r.configStatus,'Ошибка применения','error');}
 }
 
+// Reserve each participating router, then process up to three router groups.
+// Connections of one router keep their order and never write concurrently.
+function releaseSyncRouters(rows,owner){
+  for(const row of rows)if(syncView.routers.get(row.mapping.router)===owner)syncView.routers.delete(row.mapping.router);
+}
+function drainSyncQueue(){
+  while(syncView.running<3&&syncView.queue.length){
+    const task=syncView.queue.shift();syncView.running++;
+    void Promise.resolve().then(task.run).then(task.resolve,task.reject).finally(()=>{syncView.running--;drainSyncQueue();});
+  }
+}
+async function runSyncRows(rows,options,apply,owner){
+  const groups=new Map();
+  for(const row of rows){const router=row.mapping.router;if(!groups.has(router))groups.set(router,[]);groups.get(router).push(row);}
+  const tasks=[...groups.values()].map(groupRows=>new Promise((resolve,reject)=>{
+    syncView.queue.push({resolve,reject,run:async()=>{
+      try{
+        for(const row of groupRows){await(apply?applySyncRow(row,options):checkSyncRow(row,options));syncView.batches.get(owner).completed++;refreshSyncUi();}
+        if(apply)await refreshSyncRouter(groupRows[0].group);
+      }finally{releaseSyncRouters(groupRows,owner);refreshSyncUi();}
+    }});
+  }));
+  drainSyncQueue();
+  const results=await Promise.allSettled(tasks);
+  const failed=results.find(result=>result.status==='rejected');if(failed)throw failed.reason;
+}
 async function runSyncCheck(){
-  if(syncView.busy||syncView.loading||speedTestBusy())return;const rows=syncScope().slice(),options=syncOptions();if(!rows.length)return;
-  syncView.busy=true;refreshSyncUi();
-  try{for(let i=0;i<rows.length;i++){syncView.progress=`Проверяем подключения: ${i+1} из ${rows.length}`;refreshSyncUi();await checkSyncRow(rows[i],options);}}
-  finally{syncView.busy=false;syncView.progress='';refreshSyncUi();}
+  if(syncView.loading)return;const rows=syncScope().filter(r=>!syncRouterBusy(r.mapping.router)),options=syncOptions();if(!rows.length)return;
+  const owner=Symbol();for(const row of rows)syncView.routers.set(row.mapping.router,owner);
+  syncView.batches.set(owner,{completed:0,total:rows.length});refreshSyncUi();
+  try{await runSyncRows(rows,options,false,owner);}
+  finally{releaseSyncRouters(rows,owner);syncView.batches.delete(owner);syncView.progress='';refreshSyncUi();}
 }
 async function runSyncApply(){
-  if(syncView.busy||syncView.loading||speedTestBusy())return;const rows=syncScope().filter(syncNeedsApply),options=syncOptions();if(!rows.length)return;
-  syncView.busy=true;refreshSyncUi();
+  if(syncView.loading)return;const rows=syncScope().filter(r=>!syncRouterBusy(r.mapping.router)&&syncNeedsApply(r)),options=syncOptions();if(!rows.length)return;
+  const owner=Symbol();for(const row of rows)syncView.routers.set(row.mapping.router,owner);
+  syncView.batches.set(owner,{completed:0,total:rows.length});refreshSyncUi();
   try{
     const list=rows.map(r=>`<li>${esc(r.mapping.router)} · ${esc(r.mapping.server)} · ${r.mapping.connType==='openvpn-ui'?'OpenVPN':'AmneziaWG'}<br><span class="muted">${esc(r.mapping.interface)}</span></li>`).join('');
     if(!await showConfirm(`Применить проверенные изменения?<br>Подключений: ${rows.length}<ul class="ss-confirm-list">${list}</ul><span class="muted">Настройки будут записаны и сохранены на роутерах.${options.noRestart?'':' Изменённые активные соединения могут кратковременно перезапуститься.'}</span>`,'Применить изменения'))return;
-    for(let i=0;i<rows.length;i++){syncView.progress=`Применяем изменения: ${i+1} из ${rows.length}`;refreshSyncUi();await applySyncRow(rows[i],options);}
-    for(const group of new Set(rows.map(r=>r.group)))void refreshSyncRouter(group);
-  }finally{syncView.busy=false;syncView.progress='';refreshSyncUi();}
+    await runSyncRows(rows,options,true,owner);
+  }finally{releaseSyncRouters(rows,owner);syncView.batches.delete(owner);syncView.progress='';refreshSyncUi();}
 }
 async function switchSyncConnection(r){
-  if(syncView.busy||speedTestBusy()||!r.info||r.info.up)return;
-  syncView.busy=true;refreshSyncUi();
+  if(syncView.loading||syncRouterBusy(r.mapping.router)||!r.info||r.info.up)return;
+  const owner=Symbol();syncView.routers.set(r.mapping.router,owner);refreshSyncUi();
   try{
     if(!await showConfirm(`Использовать ${esc(r.mapping.server)} (${r.mapping.connType==='openvpn-ui'?'OpenVPN':'AmneziaWG'}) на роутере «${esc(r.mapping.router)}»?<br><span class="muted">Выбранный интерфейс включится, остальные VPN-интерфейсы из маппингов этого роутера выключатся. Соединение может кратковременно прерваться.</span>`,'Переключить подключение'))return;
     const data=await api('/api/router-active',{router:r.mapping.router,mapping:r.mapping.name});
     if(!data.ok)throw new Error(data.error||'Не удалось переключить подключение');
     updateSyncConnections(r.group,data.interfaces||{});toast('Подключение переключено');
   }catch(e){toast(e.message,true);}
-  finally{syncView.busy=false;refreshSyncUi();}
+  finally{releaseSyncRouters([r],owner);refreshSyncUi();}
 }
 
 function initSyncUi(){

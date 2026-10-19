@@ -98,41 +98,97 @@ export async function runRouterIperf(keen, { mapping, target = 'local', reverse 
   }
 }
 
-// One throughput test at a time: parallel tests distort measurements and may
-// compete for the same single-client iperf server. State survives page reloads.
-export function createSpeedTests({ runner = runRouterIperf, timeoutMs = 90000 } = {}) {
+// Independent routers/servers can run together. Both AZ target aliases share a
+// server slot: in a standard deployment they can resolve to the same process.
+export function createSpeedTests({ runner = runRouterIperf, timeoutMs = 90000, queueTimeoutMs = 300000, maxRunning = 3, maxPending = 20 } = {}) {
   const jobs = new Map();
-  let active = null, latest = null;
-  const view = job => job ? structuredClone(job.public) : null;
-  const get = id => { if (!id) return view(active || latest); if (!jobs.has(id)) throw httpError(404, 'Тест не найден или его результат уже удалён'); return view(jobs.get(id)); };
-  const start = (keen, options, onSettled = () => {}) => {
-    if (active) throw httpError(409, 'Уже выполняется тест скорости. Дождитесь завершения или остановите его.');
-    options = { ...options, target: options.target ?? 'local', reverse: options.reverse ?? true };
-    const job = { controller: new AbortController(), public: {
-      id: randomUUID(), mapping: options.mapping.name, router: options.mapping.router, server: options.mapping.server,
-      target: IPERF_TARGETS[options.target], reverse: options.reverse, streams: 10, seconds: 10,
-      status: 'checking', createdAt: new Date().toISOString(), log: '', result: null,
-    } };
-    active = latest = job; jobs.set(job.public.id, job);
-    while (jobs.size > 20) jobs.delete(jobs.keys().next().value);
-    const timer = setTimeout(() => { job.timedOut = true; job.controller.abort(); }, timeoutMs);
-    job.done = Promise.resolve().then(() => runner(keen, { ...options, signal: job.controller.signal,
-      onProgress: patch => { Object.assign(job.public, patch); if (job.controller.signal.aborted) job.public.status = 'stopping'; } }))
-      .then(result => { job.public.result = result; job.public.status = 'done'; })
+  const active = new Set(), routers = new Map(), servers = new Set();
+  let closed = false;
+  const view = job => {
+    if (!job) return null;
+    const result = structuredClone(job.public);
+    if (result.status === 'queued') {
+      result.queuePosition = [...jobs.values()].filter(j => !j.settled && j.public.status === 'queued' && j.serverKey === job.serverKey).indexOf(job) + 1;
+      result.waitingFor = servers.has(job.serverKey) ? 'server' : 'capacity';
+    }
+    return result;
+  };
+  const list = () => [...jobs.values()].map(view);
+  const get = id => {
+    if (!id) return view([...jobs.values()].find(j => !j.settled) || [...jobs.values()].at(-1));
+    if (!jobs.has(id)) throw httpError(404, 'Тест не найден или его результат уже удалён');
+    return view(jobs.get(id));
+  };
+  const trim = () => {
+    const completed = [...jobs.values()].filter(j => j.settled);
+    for (const job of completed.slice(0, Math.max(0, completed.length - 20))) jobs.delete(job.public.id);
+  };
+  const settle = job => {
+    clearTimeout(job.timer); clearTimeout(job.queueTimer);
+    job.settled = true; job.public.finishedAt = new Date().toISOString();
+    if (active.delete(job)) servers.delete(job.serverKey);
+    routers.delete(job.public.router);
+    try { job.onSettled(); } finally { job.keen = null; job.options = null; job.onSettled = null; trim(); drain(); }
+  };
+  const execute = job => {
+    clearTimeout(job.queueTimer);
+    active.add(job); servers.add(job.serverKey);
+    job.public.status = 'checking'; job.public.startedAt = new Date().toISOString();
+    job.timer = setTimeout(() => { job.timedOut = true; job.controller.abort(); }, timeoutMs);
+    job.done = Promise.resolve().then(() => {
+      job.controller.signal.throwIfAborted();
+      return runner(job.keen, { ...job.options, signal: job.controller.signal,
+        onProgress: patch => { Object.assign(job.public, patch); if (job.controller.signal.aborted) job.public.status = 'stopping'; } });
+    })
+      .then(result => {
+        job.controller.signal.throwIfAborted();
+        job.public.result = result; job.public.status = 'done';
+      })
       .catch(error => {
         const cancelled = job.controller.signal.aborted && !job.timedOut;
         job.public.status = cancelled ? 'cancelled' : 'error';
         job.public.code = job.timedOut ? 'TEST_TIMEOUT' : cancelled ? 'CANCELLED' : error.code || 'TEST_FAILED';
         job.public.error = job.timedOut ? 'Время ожидания теста истекло. Проверьте доступность роутера и сервера iperf3.' : cancelled ? (job.public.stopUnconfirmed ? 'Отмена запрошена, но остановка на роутере не подтверждена.' : 'Тест остановлен.') : safeMessage(error.message);
       })
-      .finally(() => { clearTimeout(timer); job.public.finishedAt = new Date().toISOString(); active = null; onSettled(); });
+      .finally(() => settle(job));
+  };
+  const drain = () => {
+    if (closed) return;
+    for (const job of jobs.values()) {
+      if (active.size >= maxRunning) break;
+      if (!job.settled && job.public.status === 'queued' && !servers.has(job.serverKey)) execute(job);
+    }
+  };
+  const start = (keen, options, onSettled = () => {}) => {
+    options = { ...options, target: options.target ?? 'local', reverse: options.reverse ?? true };
+    if (closed) throw httpError(503, 'Сервер останавливается');
+    if (!options.mapping?.router || !options.mapping?.server || !options.mapping?.name || !Object.hasOwn(IPERF_TARGETS, options.target) || typeof options.reverse !== 'boolean') throw httpError(400, 'Некорректные параметры теста');
+    if (routers.has(options.mapping.router)) throw httpError(409, 'На этом роутере уже выполняется или ожидает запуска тест скорости');
+    if (routers.size >= maxPending) throw httpError(429, 'Очередь тестов заполнена. Дождитесь завершения или отмените ненужные задания.');
+    const job = { controller: new AbortController(), keen, options, onSettled, settled: false,
+      serverKey: options.serverKey || options.mapping.server, public: {
+      id: randomUUID(), mapping: options.mapping.name, router: options.mapping.router, server: options.mapping.server,
+      target: IPERF_TARGETS[options.target], reverse: options.reverse, streams: 10, seconds: 10,
+      status: 'queued', createdAt: new Date().toISOString(), log: '', result: null,
+    } };
+    jobs.set(job.public.id, job); routers.set(job.public.router, job);
+    job.queueTimer = setTimeout(() => {
+      job.public.status = 'error'; job.public.code = 'QUEUE_TIMEOUT';
+      job.public.error = 'Истекло время ожидания в очереди. Тест не запускался.'; settle(job);
+    }, queueTimeoutMs);
+    drain();
     return view(job);
   };
   const cancel = id => {
     const job = jobs.get(id);
     if (!job) throw httpError(404, 'Тест не найден');
-    if (job === active) { job.public.status = 'stopping'; job.controller.abort(); }
+    if (!job.settled) {
+      job.controller.abort();
+      if (job.public.status === 'queued') { job.public.status = 'cancelled'; job.public.code = 'CANCELLED'; settle(job); }
+      else job.public.status = 'stopping';
+    }
     return view(job);
   };
-  return { get, start, cancel, busy: () => !!active, close: () => { active?.controller.abort(); } };
+  return { get, list, start, cancel, busy: router => router === undefined ? routers.size > 0 : routers.has(router),
+    close: () => { closed = true; for (const job of jobs.values()) if (!job.settled) cancel(job.public.id); } };
 }

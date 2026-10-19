@@ -200,9 +200,9 @@ export function startServer(configPath, port = 8787, host = '127.0.0.1') {
         const sourceRevision = configRevision(cfg);
         const opts = { withSecrets: !!body.withSecrets, noRestart: !!body.noRestart, activate: body.activate === true };
         const writing = p === '/api/apply';
-        if (writing && routerWrites.has(m.router)) { sendJson(res, 409, { error: 'На этом роутере уже выполняется применение или переключение VPN. Дождитесь завершения' }); return; }
+        if (routerWrites.has(m.router)) { sendJson(res, 409, { error: 'На этом роутере уже выполняется проверка, применение, переключение VPN или тест скорости. Дождитесь завершения' }); return; }
         if (writing && !body.planToken) throw httpError(428, 'Сначала проверьте план изменений');
-        if (writing) routerWrites.add(m.router);
+        routerWrites.add(m.router);
         try {
           const ctx = await prepare(cfg, m);
           const plan = computePlan(ctx, opts);
@@ -225,7 +225,7 @@ export function startServer(configPath, port = 8787, host = '127.0.0.1') {
           if(result.errors)result.errors=result.errors.map(safeMessage);
           sendJson(res, 200, { plan: safePlan, result });
           return;
-        } finally { if (writing) routerWrites.delete(m.router); }
+        } finally { routerWrites.delete(m.router); }
       }
 
       if (req.method === 'GET' && p === '/api/traffic') {
@@ -235,34 +235,37 @@ export function startServer(configPath, port = 8787, host = '127.0.0.1') {
         if (!Object.hasOwn(cfg.routers, router)) throw httpError(404, 'Роутер не найден');
         const mappingNames = url.searchParams.has('mapping') ? url.searchParams.getAll('mapping') : null;
         const source = url.searchParams.get('source') || 'server';
-        if (source === 'router' && routerWrites.has(router) && !(speedTests.busy() && speedTests.get()?.router === router)) {
+        if (source === 'router' && routerWrites.has(router) && !speedTests.busy(router)) {
           sendJson(res, 200, { router, source, state: 'busy', capturedAt: Date.now(), connections: [], message: 'На роутере применяются настройки. Мониторинг продолжится после завершения.' }); return;
         }
         const snapshot = await trafficMonitor.get(cfg, router, { mappingNames, source });
         sendJson(res, 200, { ...snapshot, servedAt: Date.now() }); return;
       }
       if (req.method === 'GET' && p === '/api/speed-test') {
-        sendJson(res, 200, { job: speedTests.get(url.searchParams.get('id')) }); return;
+        sendJson(res, 200, { job: speedTests.get(url.searchParams.get('id')), jobs: speedTests.list() }); return;
       }
       if (req.method === 'POST' && p === '/api/speed-test-cancel') {
         const body = await readBody(req, 4096);
         if (typeof body.id !== 'string') throw httpError(400, 'Не задан идентификатор теста');
-        sendJson(res, 200, { job: speedTests.cancel(body.id) }); return;
+        sendJson(res, 200, { job: speedTests.cancel(body.id), jobs: speedTests.list() }); return;
       }
       if (req.method === 'POST' && p === '/api/speed-test') {
         const body = await readBody(req, 4096);
         if (typeof body.name !== 'string' || !['local', 'world'].includes(body.target ?? 'local') || (body.reverse !== undefined && typeof body.reverse !== 'boolean')) throw httpError(400, 'Некорректные параметры теста');
         const cfg = loadConfig(configPath), mapping = cfg.mappings.find(m => m.name === body.name);
         if (!mapping) throw httpError(404, 'Подключение не найдено');
-        if (speedTests.busy()) throw httpError(409, 'Уже выполняется тест скорости. Дождитесь завершения или остановите его.');
+        if (mapping.enabled === false) throw httpError(400, 'Для этого подключения выключена синхронизация');
         if (routerWrites.has(mapping.router)) throw httpError(409, 'На этом роутере уже выполняется операция. Дождитесь завершения.');
         const router = Object.hasOwn(cfg.routers, mapping.router) ? cfg.routers[mapping.router] : null;
         if (!router) throw httpError(404, 'Роутер не найден');
         const keen = new Keenetic({ endpoints: router.endpoints || router.endpoint, username: router.username, password: router.password, insecure: router.insecure === true });
         routerWrites.add(mapping.router);
         try {
-          const job = speedTests.start(keen, { mapping, target: body.target ?? 'local', reverse: body.reverse ?? true }, () => routerWrites.delete(mapping.router));
-          sendJson(res, 202, { job });
+          const vpnServer = cfg.servers[mapping.server];
+          const connection = vpnServer?.connections?.[mapping.connection];
+          const serverKey = String(vpnServer?.host || (connection?.url ? new URL(connection.url).hostname : mapping.server)).trim().toLowerCase().replace(/\.$/, '');
+          const job = speedTests.start(keen, { mapping, serverKey, target: body.target ?? 'local', reverse: body.reverse ?? true }, () => routerWrites.delete(mapping.router));
+          sendJson(res, 202, { job, jobs: speedTests.list() });
         } catch (error) { routerWrites.delete(mapping.router); throw error; }
         return;
       }

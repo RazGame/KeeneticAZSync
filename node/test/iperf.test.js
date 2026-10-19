@@ -147,11 +147,12 @@ test('cancelling router authentication aborts the in-flight request without wake
   await assert.rejects(()=>connecting);assert.equal(requests,1);
 });
 
-test('job state supports reload, keeps bounded history and never returns credentials',async()=>{
+test('job state supports reload, keeps bounded history and never returns credentials',async t=>{
   let release;const gate=new Promise(r=>release=r);
   const manager=createSpeedTests({runner:async(_,{onProgress})=>{onProgress({status:'running'});await gate;return parseIperfOutput(output.join('\n'));}});
+  t.after(()=>{release();manager.close();});
   const job=manager.start({password:'secret'},{mapping,target:'local',reverse:false});
-  assert.equal(manager.get().id,job.id);assert.throws(()=>manager.start({},{}),e=>e.status===409);
+  assert.equal(manager.get().id,job.id);assert.throws(()=>manager.start({},{mapping}),e=>e.status===409);
   assert.ok(!JSON.stringify(manager.get()).includes('secret'));release();await until(()=>!manager.busy());
   for(let i=0;i<22;i++){manager.start({},{mapping,target:'local',reverse:false});await until(()=>!manager.busy());}
   assert.throws(()=>manager.get(job.id),e=>e.status===404);assert.equal(manager.get().status,'done');
@@ -186,8 +187,8 @@ test('API serializes diagnostics with writes, rejects unsafe inputs and preserve
 
 test('browser restores an active job by GET, renders raw output as text and keeps disabled VPNs untestable',async()=>{
   const fields=()=>({disabled:false,hidden:false,textContent:'',className:'',value:'',classList:{toggle(){}}});
-  const row={mapping:{name:'M'},info:{up:true,connected:true},entry:{},speed:{box:{},target:fields(),direction:fields(),start:fields(),stop:fields(),state:fields(),result:fields(),log:fields(),output:fields(),job:null}};
-  const job={id:'existing',mapping:'M',target:'az-local.antizapret',reverse:false,status:'running',log:'<img src=x onerror=alert(1)>',result:null};
+  const row={mapping:{name:'M',router:'R'},info:{up:true,connected:true},entry:{},speed:{box:{},target:fields(),direction:fields(),start:fields(),stop:fields(),state:fields(),result:fields(),log:fields(),output:fields(),job:null}};
+  const job={id:'existing',mapping:'M',router:'R',target:'az-local.antizapret',reverse:false,status:'running',log:'<img src=x onerror=alert(1)>',result:null};
   const requests=[],callbacks=[];
   const context={syncView:{rows:[row],busy:false,loading:false},$:()=>({}),esc:s=>String(s),setTimeout:f=>{callbacks.push(f);return 1;},clearTimeout(){},refreshSyncUi(){},api:async(...args)=>{requests.push(args);return{job};}};
   vm.runInNewContext(fs.readFileSync(new URL('../web/speed.js',import.meta.url),'utf8')+'\nglobalThis.testApi={restoreSpeedTest,pollSpeedTest,refreshSpeedTestEntry,speedTestBusy};',context);
@@ -195,8 +196,40 @@ test('browser restores an active job by GET, renders raw output as text and keep
   assert.ok(requests.every(args=>args[0].startsWith('/api/speed-test')&&args[1]===undefined));
   context.testApi.refreshSpeedTestEntry(row);assert.equal(row.speed.output.textContent,job.log);assert.equal(row.speed.stop.hidden,false);assert.equal(context.testApi.speedTestBusy(),true);
   row.info={up:false,connected:false};row.speed.job=null;context.testApi.refreshSpeedTestEntry(row);assert.equal(row.speed.start.disabled,true);
-  row.speed.job=job;let missing=true;
-  context.api=async()=>{if(missing){missing=false;throw Object.assign(new Error('Тест не найден'),{status:404});}return{job:null};};
+  row.speed.job=job;
+  context.api=async()=>({jobs:[]});
   await context.testApi.pollSpeedTest();
   assert.equal(context.testApi.speedTestBusy(),false);assert.equal(row.speed.job.status,'error');
+});
+
+test('API runs tests on different servers, queues server aliases and cancels jobs independently',async t=>{
+  const natives=await Promise.all([router(t,{endless:true}),router(t,{endless:true}),router(t,{endless:true})]);
+  t.mock.method(Keenetic.prototype,'connect',async function({signal}={}){signal?.throwIfAborted();this.base=this.endpoints[0];this.jar=createJar();return this.base;});
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'awg-parallel-iperf-')),file=path.join(dir,'config.yaml');
+  const servers={A:{host:'VPN.EXAMPLE.COM.',connections:{wg:{url:'http://panel-a'}}},AliasA:{host:'vpn.example.com',connections:{wg:{url:'http://panel-alias'}}},B:{host:'other.example.com',connections:{wg:{url:'http://panel-b'}}}};
+  const routers=Object.fromEntries(natives.map((n,i)=>['R'+(i+1),{endpoint:n.base,password:'router-secret'}]));
+  const mappings=['A','AliasA','B'].map((server,i)=>({...mapping,name:'M'+(i+1),router:'R'+(i+1),server}));
+  saveConfig(file,{servers,routers,mappings});const before=fs.readFileSync(file);
+  const app=startServer(file,0);await once(app,'listening');
+  t.after(async()=>{app.closeAllConnections();await new Promise(r=>app.close(r));fs.rmSync(dir,{recursive:true});});
+  const headers={'Content-Type':'application/json'};
+  if(process.env.BASIC_AUTH_USER&&process.env.BASIC_AUTH_PASS)headers.Authorization='Basic '+Buffer.from(`${process.env.BASIC_AUTH_USER}:${process.env.BASIC_AUTH_PASS}`).toString('base64');
+  const api=async(p,body)=>{const r=await fetch(`http://127.0.0.1:${app.address().port}`+p,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined});return{status:r.status,...await r.json()};};
+  const first=await api('/api/speed-test',{name:'M1'}),queued=await api('/api/speed-test',{name:'M2',target:'world'}),independent=await api('/api/speed-test',{name:'M3'});
+  assert.equal(first.status,202);assert.equal(queued.status,202);assert.equal(independent.status,202);
+  await until(()=>natives[0].state.posts.length&&natives[2].state.posts.length);
+  assert.equal(natives[1].state.posts.length,0);
+  assert.equal(queued.job.status,'queued');
+  const snapshot=await api('/api/speed-test');assert.equal(snapshot.jobs.length,3);assert.ok(!JSON.stringify(snapshot).includes('router-secret'));
+  assert.equal((await api('/api/plan',{name:'M2'})).status,409);
+  assert.equal((await api('/api/speed-test',{name:'M3'})).status,409);
+  await api('/api/speed-test-cancel',{id:queued.job.id});
+  assert.equal(natives[1].state.posts.length,0);assert.equal(natives[1].state.deletes,0);
+  const next=await api('/api/speed-test',{name:'M2'});assert.equal(next.job.status,'queued');
+  await api('/api/speed-test-cancel',{id:first.job.id});
+  await until(()=>natives[1].state.posts.length===1);
+  const running=await api('/api/speed-test?id='+independent.job.id);assert.equal(running.job.status,'running');
+  await api('/api/speed-test-cancel',{id:next.job.id});await api('/api/speed-test-cancel',{id:independent.job.id});
+  await until(()=>api('/api/speed-test'),s=>s.jobs.every(j=>['cancelled','done','error'].includes(j.status)));
+  assert.deepEqual(fs.readFileSync(file),before);
 });

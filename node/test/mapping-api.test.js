@@ -94,3 +94,29 @@ test('activation rechecks the previewed active VPN set and serializes writes on 
   release(); assert.equal((await applying).result.ok, true);
   assert.equal((await post('/api/router-active', { router: 'Router', mapping: 'new' })).status, 200);
 });
+
+test('API applies different routers concurrently while rejecting competing work on each router',async t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'awg-parallel-apply-')),file=path.join(dir,'config.yaml');
+  const cfg={servers:{VPS:{connections:{ovpn:{type:'openvpn-ui',url:'http://panel'}}}},routers:{R1:{endpoint:'http://r1'},R2:{endpoint:'http://r2'}},mappings:['R1','R2'].map(router=>({name:router,server:'VPS',connection:'ovpn',router,client:router,interface:'VPN'}))};
+  saveConfig(file,cfg);const before=fs.readFileSync(file),entered=new Set(),current=new Map();let release,bothStarted;
+  const gate=new Promise(r=>release=r),started=new Promise(r=>bothStarted=r);
+  t.mock.method(OpenVpnUi.prototype,'login',async()=>{});
+  t.mock.method(OpenVpnUi.prototype,'configByName',async()=> 'client\nremote vpn.example.com 1194\n<ca>\ntest\n</ca>\n');
+  t.mock.method(Keenetic.prototype,'connect',async function(){this.base=this.endpoints[0];return this.base;});
+  t.mock.method(Keenetic.prototype,'openvpnInterfaces',async function(){return current.get(this.base)||[];});
+  t.mock.method(Keenetic.prototype,'rci',async()=>[]);
+  t.mock.method(Keenetic.prototype,'writeOpenvpnConfig',async function(name,config){entered.add(this.base);if(entered.size===2)bothStarted();await gate;current.set(this.base,[{name,description:'VPN',config}]);});
+  const app=startServer(file,0);await once(app,'listening');
+  t.after(async()=>{release();app.closeAllConnections();await new Promise(r=>app.close(r));fs.rmSync(dir,{recursive:true});});
+  const headers={'Content-Type':'application/json'};
+  if(process.env.BASIC_AUTH_USER&&process.env.BASIC_AUTH_PASS)headers.Authorization='Basic '+Buffer.from(`${process.env.BASIC_AUTH_USER}:${process.env.BASIC_AUTH_PASS}`).toString('base64');
+  const post=async(p,body)=>{const res=await fetch(`http://127.0.0.1:${app.address().port}`+p,{method:'POST',headers,body:JSON.stringify(body)});return{status:res.status,...await res.json()};};
+  const plans=await Promise.all(['R1','R2'].map(name=>post('/api/plan',{name})));
+  const applying=['R1','R2'].map((name,i)=>post('/api/apply',{name,planToken:plans[i].planToken}));
+  await Promise.race([started,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(new Error('Router applies did not overlap')),3000);timer.unref();})]);
+  assert.equal((await post('/api/plan',{name:'R1'})).status,409);
+  assert.equal((await post('/api/router-active',{router:'R2',mapping:'R2'})).status,409);
+  assert.equal((await post('/api/speed-test',{name:'R1'})).status,409);
+  release();for(const result of await Promise.all(applying))assert.equal(result.result.ok,true);
+  assert.deepEqual(fs.readFileSync(file),before);
+});

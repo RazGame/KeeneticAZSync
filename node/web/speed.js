@@ -1,6 +1,7 @@
 /* Native router diagnostics. Polling only reads a job; it never restarts a test. */
-const speedUi = { job: null, pending: false, timer: null, connectionError: '' };
-const speedTestBusy = () => speedUi.pending || ['checking','running','stopping'].includes(speedUi.job?.status);
+const speedUi = { jobs: new Map(), pending: new Set(), timer: null, polling: false, revision: 0, connectionError: '' };
+const speedJobActive = job => ['queued','checking','running','stopping'].includes(job?.status);
+const speedTestBusy = router => (router === undefined ? speedUi.pending.size > 0 : speedUi.pending.has(router)) || [...speedUi.jobs.values()].some(job => speedJobActive(job) && (router === undefined || job.router === router));
 
 function makeSpeedTestEntry(r) {
   const box = document.createElement('details');
@@ -17,17 +18,19 @@ function makeSpeedTestEntry(r) {
 
 function refreshSpeedTestEntry(r) {
   if (!r.speed) return;
-  const s = r.speed, job = s.job, current = job && job.id === speedUi.job?.id;
-  const working = current && ['checking','running','stopping'].includes(job.status);
+  const s = r.speed, job = s.job, current = job && speedUi.jobs.has(job.id);
+  const working = current && speedJobActive(job), pending = speedUi.pending.has(r.mapping.router);
   const connected = r.info?.up && r.info?.connected;
-  s.start.disabled = syncView.busy || syncView.loading || speedTestBusy() || !connected;
+  s.start.disabled = syncView.loading || syncView.routers?.has(r.mapping.router) || speedTestBusy(r.mapping.router) || !connected;
   s.start.textContent = job ? 'Повторить тест' : 'Запустить тест';
   s.stop.hidden = !working;
-  s.stop.disabled = speedUi.pending || job?.status === 'stopping';
-  s.target.disabled = s.direction.disabled = working || speedUi.pending;
+  s.stop.textContent = job?.status === 'queued' ? 'Убрать из очереди' : 'Остановить';
+  s.stop.disabled = pending || job?.status === 'stopping';
+  s.target.disabled = s.direction.disabled = working || pending;
   s.state.className = 'ss-speed-state';
   if (!job) { s.state.textContent = connected ? 'Перед запуском проверим наличие компонента iPerf3 на роутере.' : 'Для теста нужно активное VPN-подключение. Включите его и обновите состояние.'; return; }
-  const labels = { checking:'Подключаемся к роутеру и проверяем наличие iPerf3…', running:'Тест выполняется: 10 потоков, 10 секунд. Ожидаем итог роутера…', stopping:'Останавливаем тест на роутере…', done:'Тест завершён.', cancelled:job.stopUnconfirmed?'Остановка запрошена.':'Тест остановлен.' };
+  const queued = job.waitingFor === 'server' ? `Сервер занят другим тестом. Место в очереди: ${job.queuePosition || 1}. Запустим автоматически.` : 'Ожидаем свободное место для теста. Запустим автоматически.';
+  const labels = { queued, checking:'Подключаемся к роутеру и проверяем наличие iPerf3…', running:'Тест выполняется: 10 потоков, 10 секунд. Ожидаем итог роутера…', stopping:'Останавливаем тест на роутере…', done:'Тест завершён.', cancelled:job.stopUnconfirmed?'Остановка запрошена.':'Тест остановлен.' };
   s.state.textContent = labels[job.status] || job.error || 'Ошибка теста';
   if (current && speedUi.connectionError) s.state.textContent += ' ' + speedUi.connectionError;
   if (job.stopUnconfirmed) s.state.textContent += ' Остановка на роутере не подтверждена. Проверьте его диагностику перед повтором.';
@@ -44,53 +47,70 @@ function refreshSpeedTestEntry(r) {
   s.output.textContent = job.log || '';
 }
 
-function acceptSpeedTestJob(job) {
-  const lost = !job && ['checking','running','stopping'].includes(speedUi.job?.status);
-  speedUi.job = job; speedUi.connectionError = '';
+function acceptSpeedTestJobs(jobs, complete = true) {
+  if (complete) speedUi.jobs.clear();
+  for (const job of jobs) if (job) speedUi.jobs.set(job.id, job);
+  speedUi.revision++; speedUi.connectionError = '';
   for (const r of syncView.rows) {
-    if (lost && ['checking','running','stopping'].includes(r.speed.job?.status)) r.speed.job = { ...r.speed.job, status:'error', error:'Сервер AWG Sync перезапущен или результат удалён. Состояние теста утрачено; перед новым запуском проверим диагностику роутера.' };
-    if (job?.mapping === r.mapping.name) {
+    if (complete && speedJobActive(r.speed.job) && !speedUi.jobs.has(r.speed.job.id)) r.speed.job = { ...r.speed.job, status:'error', error:'Сервер AWG Sync перезапущен или результат удалён. Состояние теста утрачено; перед новым запуском проверим диагностику роутера.' };
+    const job = [...speedUi.jobs.values()].filter(j => j.mapping === r.mapping.name).at(-1);
+    if (job) {
       r.speed.job = job;
       r.speed.target.value = job.target === 'az-world.antizapret' ? 'world' : 'local';
       r.speed.direction.value = job.reverse ? 'download' : 'upload';
-      if (['checking','running','stopping'].includes(job.status)) { r.speed.box.open = true; $('.ss-detail',r.entry).open = true; }
+      if (speedJobActive(job)) { r.speed.box.open = true; $('.ss-detail',r.entry).open = true; }
     }
   }
   refreshSyncUi();
+  scheduleSpeedPoll();
+}
+
+function scheduleSpeedPoll(ms = 1000, force = false) {
   clearTimeout(speedUi.timer);
-  if (speedTestBusy() && job) speedUi.timer = setTimeout(pollSpeedTest,1000);
+  if (force || speedTestBusy()) speedUi.timer = setTimeout(pollSpeedTest, ms);
 }
 
 async function pollSpeedTest() {
-  try { const data = await api('/api/speed-test?id='+encodeURIComponent(speedUi.job.id),undefined,15000); acceptSpeedTestJob(data.job); }
+  if (speedUi.polling) { scheduleSpeedPoll(1000, true); return; }
+  speedUi.polling = true;
+  const revision = speedUi.revision;
+  try {
+    const data = await api('/api/speed-test',undefined,15000);
+    if (revision !== speedUi.revision || speedUi.pending.size) { scheduleSpeedPoll(1000, true); return; }
+    acceptSpeedTestJobs(data.jobs || (data.job ? [data.job] : []));
+  }
   catch(e) {
-    if (e.status === 404) { await restoreSpeedTest(); return; }
     speedUi.connectionError = 'Не удалось получить состояние: '+e.message+'. Тест повторно не запускается.';
     refreshSyncUi();
-    if (e.status !== 401 && e.message !== 'Требуется авторизация') speedUi.timer = setTimeout(pollSpeedTest,3000);
+    if (e.status === 401 || e.message === 'Требуется авторизация') { clearTimeout(speedUi.timer); return; }
+    scheduleSpeedPoll(3000); return;
+  } finally {
+    speedUi.polling = false;
   }
+  scheduleSpeedPoll();
 }
 
 async function restoreSpeedTest() {
   clearTimeout(speedUi.timer);
-  try { acceptSpeedTestJob((await api('/api/speed-test',undefined,15000)).job); }
-  catch(e) { if (speedUi.job) { speedUi.connectionError=e.message; refreshSyncUi(); } }
+  await pollSpeedTest();
 }
 
 async function startSpeedTest(r) {
-  if (speedTestBusy() || syncView.busy || !r.info?.up || !r.info?.connected) return;
-  speedUi.pending=true;refreshSyncUi();
+  const router = r.mapping.router;
+  if (speedTestBusy(router) || syncView.loading || syncView.routers?.has(router) || !r.info?.up || !r.info?.connected) return;
+  speedUi.pending.add(router); speedUi.revision++; refreshSyncUi();
   try {
     const data=await api('/api/speed-test',{name:r.mapping.name,target:r.speed.target.value,reverse:r.speed.direction.value==='download'},15000);
-    acceptSpeedTestJob(data.job);
+    acceptSpeedTestJobs([data.job], false);
   } catch(e) { toast('Не удалось запустить тест: '+e.message,true); await restoreSpeedTest(); }
-  finally { speedUi.pending=false;refreshSyncUi(); }
+  finally { speedUi.pending.delete(router); speedUi.revision++; refreshSyncUi(); scheduleSpeedPoll(0, true); }
 }
 
 async function stopSpeedTest(r) {
-  if (!r.speed.job || speedUi.pending) return;
-  speedUi.pending=true;refreshSyncUi();
-  try { acceptSpeedTestJob((await api('/api/speed-test-cancel',{id:r.speed.job.id},15000)).job); }
+  const router = r.mapping.router;
+  if (!r.speed.job || speedUi.pending.has(router)) return;
+  speedUi.pending.add(router); speedUi.revision++; refreshSyncUi();
+  try { acceptSpeedTestJobs([(await api('/api/speed-test-cancel',{id:r.speed.job.id},15000)).job], false); }
   catch(e) { toast('Не удалось запросить остановку: '+e.message,true); }
-  finally { speedUi.pending=false;refreshSyncUi(); }
+  finally { speedUi.pending.delete(router); speedUi.revision++; refreshSyncUi(); scheduleSpeedPoll(0, true); }
 }
