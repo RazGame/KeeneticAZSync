@@ -6,6 +6,44 @@ const syncOptionsKey=()=>JSON.stringify(syncOptions());
 const syncScope=()=>{const selected=syncView.rows.filter(r=>r.checkbox.checked);return selected.length?selected:syncView.rows;};
 const syncNeedsApply=r=>r.plan&&!r.plan.error&&r.plan.mode!=='error'&&r.plan.mode!=='noop'&&r.planToken&&r.optionsKey===syncOptionsKey();
 const syncStatus=(el,text,kind='')=>{el.className=el.classList.contains('ss-vpn')?'ss-status ss-vpn '+kind:'ss-status ss-config '+kind;el.textContent=text;};
+const syncStatusPoll={timer:null,running:false,epoch:0,due:new Map(),fast:new Map(),errors:new Map(),reads:new Map(),versions:new Map()};
+const syncStatusVisible=()=>typeof document!=='undefined'&&!document.hidden&&AUTHENTICATED&&$('#tab-sync').classList.contains('show');
+
+function stopSyncStatus(){
+  clearTimeout(syncStatusPoll.timer);syncStatusPoll.timer=null;syncStatusPoll.epoch++;
+}
+function scheduleSyncStatus(){
+  clearTimeout(syncStatusPoll.timer);syncStatusPoll.timer=null;
+  if(!syncStatusVisible()||syncStatusPoll.running||!syncView.groups.length)return;
+  const now=Date.now(),times=syncView.groups.map(g=>syncView.routers.has(g.router)||speedTestBusy(g.router)?now+2000:syncStatusPoll.due.get(g.router)||now);
+  syncStatusPoll.timer=setTimeout(pollSyncStatus,Math.max(250,Math.min(...times)-now));
+}
+function startSyncStatus(){
+  stopSyncStatus();
+  if(!syncStatusVisible())return;
+  for(const group of syncView.groups)syncStatusPoll.due.set(group.router,0);
+  scheduleSyncStatus();
+}
+async function pollSyncStatus(){
+  syncStatusPoll.timer=null;
+  if(!syncStatusVisible()||syncStatusPoll.running)return;
+  syncStatusPoll.running=true;const epoch=syncStatusPoll.epoch;
+  const queue=syncView.groups.filter(g=>!syncRouterBusy(g.router)&&(syncStatusPoll.due.get(g.router)||0)<=Date.now());
+  try{
+    await Promise.all(Array.from({length:Math.min(2,queue.length)},async()=>{
+      while(queue.length&&epoch===syncStatusPoll.epoch&&syncStatusVisible()){
+        const group=queue.shift();if(!syncRouterBusy(group.router))await refreshSyncRouter(group);
+      }
+    }));
+  }finally{syncStatusPoll.running=false;scheduleSyncStatus();}
+}
+function invalidateSyncStatus(router){
+  syncStatusPoll.versions.set(router,(syncStatusPoll.versions.get(router)||0)+1);
+}
+function followSyncConnection(group,mapping){
+  syncStatusPoll.fast.set(group.router,{mapping,until:Date.now()+30000});
+  syncStatusPoll.due.set(group.router,Date.now()+2000);scheduleSyncStatus();
+}
 
 function refreshSyncUi(){
   const selected=syncView.rows.filter(r=>r.checkbox.checked),scope=syncScope(),available=scope.filter(r=>!syncRouterBusy(r.mapping.router)),changed=available.filter(syncNeedsApply);
@@ -60,12 +98,33 @@ function updateSyncConnections(group,interfaces,error=''){
   }
 }
 async function refreshSyncRouter(group,sequence=syncView.sequence){
-  try{const data=await api(`/api/router-status?router=${encodeURIComponent(group.router)}`);if(sequence!==syncView.sequence)return;updateSyncConnections(group,data.interfaces||{},data.ok?'':data.error||'Роутер недоступен');}
-  catch(e){if(sequence===syncView.sequence)updateSyncConnections(group,{},e.message);}
+  const router=group.router,epoch=syncStatusPoll.epoch,version=syncStatusPoll.versions.get(router)||0;
+  let read=syncStatusPoll.reads.get(router);
+  if(read&&(read.epoch!==epoch||read.version!==version)){
+    await read.promise;
+    if(sequence===syncView.sequence&&epoch===syncStatusPoll.epoch&&version===(syncStatusPoll.versions.get(router)||0)&&syncStatusVisible())return refreshSyncRouter(group,sequence);
+    return;
+  }
+  if(!read){
+    read={epoch,version};
+    read.promise=api(`/api/router-status?router=${encodeURIComponent(router)}`,undefined,45000)
+      .catch(e=>({ok:false,error:e.message}))
+      .finally(()=>{if(syncStatusPoll.reads.get(router)===read)syncStatusPoll.reads.delete(router);});
+    syncStatusPoll.reads.set(router,read);
+  }
+  const data=await read.promise;
+  if(sequence!==syncView.sequence||epoch!==syncStatusPoll.epoch||version!==(syncStatusPoll.versions.get(router)||0)||!syncStatusVisible())return;
+  updateSyncConnections(group,data.interfaces||{},data.ok?'':data.error||'Роутер недоступен');
+  const now=Date.now(),fast=syncStatusPoll.fast.get(router),target=fast&&group.rows.find(r=>r.mapping.name===fast.mapping);
+  if(fast&&(now>=fast.until||target?.info?.connected))syncStatusPoll.fast.delete(router);
+  const failures=data.ok?0:(syncStatusPoll.errors.get(router)||0)+1;syncStatusPoll.errors.set(router,failures);
+  syncStatusPoll.due.set(router,now+(failures?Math.min(60000,15000*2**Math.min(failures,2)):syncStatusPoll.fast.has(router)?2000:15000));
+  scheduleSyncStatus();
 }
 
 async function loadSync(){
   if(syncView.busy||syncView.routers.size||syncView.loading)return;
+  stopSyncStatus();syncStatusPoll.due.clear();syncStatusPoll.fast.clear();syncStatusPoll.errors.clear();
   const sequence=++syncView.sequence;
   syncView.loading=true;syncView.progress='';refreshSyncUi();
   try{
@@ -81,13 +140,13 @@ async function loadSync(){
       const group={el,router,rows:[],checkbox:$('header input',el)};
       for(const m of items){const r=makeSyncEntry(m);r.group=group;r.checkbox.checked=selected.has(m.name);group.rows.push(r);syncView.rows.push(r);$('.ss-list',el).appendChild(r.entry);}
       group.checkbox.onchange=()=>{group.rows.forEach(r=>r.checkbox.checked=group.checkbox.checked);refreshSyncUi();};
-      syncView.groups.push(group);box.appendChild(el);void refreshSyncRouter(group,sequence);
+      syncView.groups.push(group);box.appendChild(el);
     }
     if(!groups.size)box.innerHTML='<div class="ss-empty">Нет подключений для синхронизации. Добавьте связь на вкладке «Маппинги» и включите для неё синхронизацию.</div>';
     $('#syncmsg').textContent=`Подключений: ${syncView.rows.length} · роутеров: ${groups.size}`;
     await restoreSpeedTest();
   }catch(e){syncView.progress='Не удалось загрузить подключения: '+e.message;}
-  finally{syncView.loading=false;refreshSyncUi();}
+  finally{syncView.loading=false;refreshSyncUi();startSyncStatus();}
 }
 
 async function checkSyncRow(r,options){
@@ -132,7 +191,7 @@ async function runSyncRows(rows,options,apply,owner){
     syncView.queue.push({resolve,reject,run:async()=>{
       try{
         for(const row of groupRows){await(apply?applySyncRow(row,options):checkSyncRow(row,options));syncView.batches.get(owner).completed++;refreshSyncUi();}
-        if(apply)await refreshSyncRouter(groupRows[0].group);
+        if(apply){invalidateSyncStatus(groupRows[0].mapping.router);await refreshSyncRouter(groupRows[0].group);const pending=groupRows[0].group.rows.find(r=>r.info?.up&&!r.info.connected);if(pending)followSyncConnection(pending.group,pending.mapping.name);}
       }finally{releaseSyncRouters(groupRows,owner);refreshSyncUi();}
     }});
   }));
@@ -160,11 +219,12 @@ async function runSyncApply(){
 async function switchSyncConnection(r){
   if(syncView.loading||syncRouterBusy(r.mapping.router)||!r.info||r.info.up)return;
   const owner=Symbol();syncView.routers.set(r.mapping.router,owner);refreshSyncUi();
+  invalidateSyncStatus(r.mapping.router);
   try{
     if(!await showConfirm(`Использовать ${esc(r.mapping.server)} (${r.mapping.connType==='openvpn-ui'?'OpenVPN':'AmneziaWG'}) на роутере «${esc(r.mapping.router)}»?<br><span class="muted">Выбранный интерфейс включится, остальные VPN-интерфейсы из маппингов этого роутера выключатся. Соединение может кратковременно прерваться.</span>`,'Переключить подключение'))return;
     const data=await api('/api/router-active',{router:r.mapping.router,mapping:r.mapping.name});
     if(!data.ok)throw new Error(data.error||'Не удалось переключить подключение');
-    updateSyncConnections(r.group,data.interfaces||{});toast('Подключение переключено');
+    updateSyncConnections(r.group,data.interfaces||{});followSyncConnection(r.group,r.mapping.name);toast('Подключение переключено');
   }catch(e){toast(e.message,true);}
   finally{releaseSyncRouters([r],owner);refreshSyncUi();}
 }
@@ -172,5 +232,6 @@ async function switchSyncConnection(r){
 function initSyncUi(){
   $('#syncCheck').onclick=runSyncCheck;$('#syncApply').onclick=runSyncApply;$('#syncReload').onclick=loadSync;
   $('#syncClear').onclick=()=>{syncView.rows.forEach(r=>r.checkbox.checked=false);refreshSyncUi();};
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)stopSyncStatus();else startSyncStatus();});
   refreshSyncUi();
 }

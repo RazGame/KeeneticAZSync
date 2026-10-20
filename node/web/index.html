@@ -1427,6 +1427,8 @@ try { localStorage.removeItem('awg_sync_auth'); } catch {}
 function toast(msg,err){const t=$('#toast');t.textContent=msg;t.style.borderColor=err?'#5a2730':'var(--line)';t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2300);}
 
 function showLoginScreen() {
+  AUTHENTICATED=false;
+  stopSyncStatus();
   stopTrafficMonitor();
   clearTrafficHistory();
   $('#appContainer').style.display = 'none';
@@ -1543,7 +1545,7 @@ $$('.rail .nav').forEach(b=>b.onclick=()=>{
   $$('.section').forEach(s=>s.classList.toggle('show',s.id==='tab-'+b.dataset.tab));
   $('#pgTitle').textContent=b.dataset.title; $('#pgSub').textContent=b.dataset.sub;
   if(b.dataset.tab==='traffic') startTrafficMonitor(); else stopTrafficMonitor();
-  if(b.dataset.tab==='sync'){ loadSync(); updateOptsSummary(); }
+  if(b.dataset.tab==='sync'){ startSyncStatus(); loadSync(); updateOptsSummary(); }else stopSyncStatus();
   // Высоту endpoints можно посчитать только когда вкладка уже видима.
   if(b.dataset.tab==='access') requestAnimationFrame(autosizeAllEps);
 });
