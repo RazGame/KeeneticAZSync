@@ -202,6 +202,25 @@ test('browser restores an active job by GET, renders raw output as text and keep
   assert.equal(context.testApi.speedTestBusy(),false);assert.equal(row.speed.job.status,'error');
 });
 
+test('restored iperf results show their original timestamps and queue cancellation never claims a test started',async()=>{
+  const field=()=>({disabled:false,hidden:false,textContent:'',value:'',classList:{toggle(){}}});
+  const row={mapping:{name:'M',router:'R'},info:{up:true,connected:true},entry:{},speed:{box:{},target:field(),direction:field(),start:field(),stop:field(),state:field(),time:field(),result:field(),log:field(),output:field()}};
+  const job={id:'old-result',mapping:'M',router:'R',status:'done',createdAt:'2026-10-19T12:00:00Z',startedAt:'2026-10-20T12:01:02Z',finishedAt:'2026-10-20T12:01:15Z'};
+  const requests=[];
+  const context={syncView:{rows:[row],routers:new Map(),loading:false},$:()=>({}),refreshSyncUi(){},setTimeout:()=>1,clearTimeout(){},api:async(...args)=>{requests.push(args);return{jobs:[job]};}};
+  vm.runInNewContext(fs.readFileSync(new URL('../web/speed.js',import.meta.url),'utf8')+'\nglobalThis.testApi={restoreSpeedTest,refreshSpeedTestEntry,speedTestTime};',context);
+  await context.testApi.restoreSpeedTest();context.testApi.refreshSpeedTestEntry(row);
+  assert.equal(row.speed.time.hidden,false);assert.match(row.speed.time.textContent,/Запущен:.*20\.10\.2026.*Завершён:.*20\.10\.2026/);
+  assert.doesNotMatch(row.speed.time.textContent,/19\.10\.2026/);
+  assert.ok(requests.every(args=>args[1]===undefined),'restoring a date must not launch another test');
+  const queued={status:'queued',createdAt:'2026-10-19T12:00:00Z'};
+  assert.match(context.testApi.speedTestTime(queued),/^В очереди с .*19\.10\.2026/);
+  const cancelled=context.testApi.speedTestTime({...queued,status:'cancelled',finishedAt:'2026-10-19T12:00:10Z'});
+  assert.match(cancelled,/Задание создано:.*Отменён:/);assert.doesNotMatch(cancelled,/Запущен/);
+  assert.equal(context.testApi.speedTestTime({status:'done',startedAt:'bad-date'}),'Время запуска неизвестно');
+  row.speed.job=null;context.testApi.refreshSpeedTestEntry(row);assert.equal(row.speed.time.hidden,true);assert.equal(row.speed.time.textContent,'');
+});
+
 test('API runs tests on different servers, queues server aliases and cancels jobs independently',async t=>{
   const natives=await Promise.all([router(t,{endless:true}),router(t,{endless:true}),router(t,{endless:true})]);
   t.mock.method(Keenetic.prototype,'connect',async function({signal}={}){signal?.throwIfAborted();this.base=this.endpoints[0];this.jar=createJar();return this.base;});

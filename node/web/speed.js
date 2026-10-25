@@ -2,15 +2,26 @@
 const speedUi = { jobs: new Map(), pending: new Set(), timer: null, polling: false, revision: 0, connectionError: '' };
 const speedJobActive = job => ['queued','checking','running','stopping'].includes(job?.status);
 const speedTestBusy = router => (router === undefined ? speedUi.pending.size > 0 : speedUi.pending.has(router)) || [...speedUi.jobs.values()].some(job => speedJobActive(job) && (router === undefined || job.router === router));
+const speedTestDateFormat = new Intl.DateTimeFormat('ru-RU', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', timeZoneName:'short' });
+function speedTestTime(job) {
+  const format = value => {
+    if (typeof value !== 'string' || !value.trim()) return '';
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? speedTestDateFormat.format(date) : '';
+  };
+  const started = format(job.startedAt), created = format(job.createdAt), finished = format(job.finishedAt);
+  const start = started ? `Запущен: ${started}` : created ? `${job.status === 'queued' ? 'В очереди с' : 'Задание создано:'} ${created}` : 'Время запуска неизвестно';
+  return start + (finished ? ` · ${job.status === 'cancelled' ? 'Отменён' : 'Завершён'}: ${finished}` : '');
+}
 
 function makeSpeedTestEntry(r) {
   const box = document.createElement('details');
   box.className = 'ss-speed';
-  box.innerHTML = `<summary>Тест скорости · iperf3</summary><div class="ss-speed-body"><p class="ss-speed-note">10 потоков TCP, 10 секунд. Тест запускается на роутере через это VPN-подключение и может загрузить канал.</p><div class="ss-speed-fields"><label>Сервер AntiZapret<select class="ss-speed-target"><option value="local">az-local.antizapret</option><option value="world">az-world.antizapret</option></select></label><label>Направление<select class="ss-speed-direction"><option value="download">Сервер → роутер</option><option value="upload">Роутер → сервер</option></select></label></div><div class="ss-speed-actions"><button class="sm ss-speed-start" type="button">Запустить тест</button><button class="sm ss-speed-stop" type="button" hidden>Остановить</button></div><p class="ss-speed-state" role="status" aria-live="polite"></p><div class="ss-speed-result" hidden></div><details class="ss-speed-log" hidden><summary>Журнал iperf3</summary><pre></pre></details></div>`;
+  box.innerHTML = `<summary>Тест скорости · iperf3</summary><div class="ss-speed-body"><p class="ss-speed-note">10 потоков TCP, 10 секунд. Тест запускается на роутере через это VPN-подключение и может загрузить канал.</p><div class="ss-speed-fields"><label>Сервер AntiZapret<select class="ss-speed-target"><option value="local">az-local.antizapret</option><option value="world">az-world.antizapret</option></select></label><label>Направление<select class="ss-speed-direction"><option value="download">Сервер → роутер</option><option value="upload">Роутер → сервер</option></select></label></div><div class="ss-speed-actions"><button class="sm ss-speed-start" type="button">Запустить тест</button><button class="sm ss-speed-stop" type="button" hidden>Остановить</button></div><p class="ss-speed-state" role="status" aria-live="polite"></p><p class="ss-speed-time ss-speed-note" hidden></p><div class="ss-speed-result" hidden></div><details class="ss-speed-log" hidden><summary>Журнал iperf3</summary><pre></pre></details></div>`;
   $('.ss-detail-body', r.entry).appendChild(box);
   r.speed = { box, target: $('.ss-speed-target',box), direction: $('.ss-speed-direction',box),
     start: $('.ss-speed-start',box), stop: $('.ss-speed-stop',box), state: $('.ss-speed-state',box),
-    result: $('.ss-speed-result',box), log: $('.ss-speed-log',box), output: $('pre',box), job: null };
+    time: $('.ss-speed-time',box), result: $('.ss-speed-result',box), log: $('.ss-speed-log',box), output: $('pre',box), job: null };
   r.speed.start.onclick = () => startSpeedTest(r);
   r.speed.stop.onclick = () => stopSpeedTest(r);
   refreshSpeedTestEntry(r);
@@ -28,6 +39,7 @@ function refreshSpeedTestEntry(r) {
   s.stop.disabled = pending || job?.status === 'stopping';
   s.target.disabled = s.direction.disabled = working || pending;
   s.state.className = 'ss-speed-state';
+  if (s.time) { s.time.hidden = !job; s.time.textContent = job ? speedTestTime(job) : ''; }
   if (!job) { s.state.textContent = connected ? 'Перед запуском проверим наличие компонента iPerf3 на роутере.' : 'Для теста нужно активное VPN-подключение. Включите его и обновите состояние.'; return; }
   const queued = job.waitingFor === 'server' ? `Сервер занят другим тестом. Место в очереди: ${job.queuePosition || 1}. Запустим автоматически.` : 'Ожидаем свободное место для теста. Запустим автоматически.';
   const labels = { queued, checking:'Подключаемся к роутеру и проверяем наличие iPerf3…', running:'Тест выполняется: 10 потоков, 10 секунд. Ожидаем итог роутера…', stopping:'Останавливаем тест на роутере…', done:'Тест завершён.', cancelled:job.stopUnconfirmed?'Остановка запрошена.':'Тест остановлен.' };
