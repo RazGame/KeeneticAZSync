@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { request } from './util/http.js';
 import { Keenetic } from './keenetic.js';
 import { httpError, safeMessage } from './security.js';
+import { createSpeedHistory } from './speed-history.js';
 
 export const IPERF_TARGETS = Object.freeze({ local: 'az-local.antizapret', world: 'az-world.antizapret' });
 const fail = (code, message) => Object.assign(new Error(message), { code });
@@ -100,8 +101,10 @@ export async function runRouterIperf(keen, { mapping, target = 'local', reverse 
 
 // Independent routers/servers can run together. Both AZ target aliases share a
 // server slot: in a standard deployment they can resolve to the same process.
-export function createSpeedTests({ runner = runRouterIperf, timeoutMs = 90000, queueTimeoutMs = 300000, maxRunning = 3, maxPending = 20 } = {}) {
+export function createSpeedTests({ runner = runRouterIperf, timeoutMs = 90000, queueTimeoutMs = 300000, maxRunning = 3, maxPending = 20, historyFile } = {}) {
   const jobs = new Map();
+  const history=createSpeedHistory(historyFile);
+  for(const item of history.load())jobs.set(item.id,{public:item,settled:true});
   const active = new Set(), routers = new Map(), servers = new Set();
   let closed = false;
   const view = job => {
@@ -128,7 +131,10 @@ export function createSpeedTests({ runner = runRouterIperf, timeoutMs = 90000, q
     job.settled = true; job.public.finishedAt = new Date().toISOString();
     if (active.delete(job)) servers.delete(job.serverKey);
     routers.delete(job.public.router);
-    try { job.onSettled(); } finally { job.keen = null; job.options = null; job.onSettled = null; trim(); drain(); }
+    try { job.onSettled(); } finally {
+      job.keen = null; job.options = null; job.onSettled = null; trim();
+      history.save([...jobs.values()].filter(j=>j.settled).map(j=>j.public));drain();
+    }
   };
   const execute = job => {
     clearTimeout(job.queueTimer);

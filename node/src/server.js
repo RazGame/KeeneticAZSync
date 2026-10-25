@@ -50,7 +50,7 @@ export function startServer(configPath, port = 8787, host = '127.0.0.1') {
   const access = createAccessPolicy(host);
   const routerWrites = new Set();
   const panelWrites = new Set();
-  const speedTests = createSpeedTests();
+  const speedTests = createSpeedTests({historyFile:path.join(path.dirname(configPath),'speed-tests.json')});
   const trafficMonitor = createTrafficMonitor();
   const configurationIdle = () => {
     if (routerWrites.size || panelWrites.size) throw httpError(409, 'Дождитесь завершения операции с устройством перед изменением конфигурации');

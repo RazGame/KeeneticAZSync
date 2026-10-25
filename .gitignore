@@ -41,3 +41,5 @@ config.yaml
 Thumbs.db
 .idea/
 .vscode/
+# Local measurement history contains device names and diagnostic output.
+speed-tests.json
