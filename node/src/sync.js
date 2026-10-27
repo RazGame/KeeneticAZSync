@@ -1,6 +1,7 @@
 // CLI-обёртка: вызывает ядро (core.js) и рендерит результат в консоль.
 import { prepare, computePlan, applyPlan } from './core.js';
 import { c } from './util/colors.js';
+import { safeMessage } from './security.js';
 
 function printList(title, items, color, cap = 12) {
   if (!items || !items.length) return;
@@ -57,7 +58,7 @@ export async function runMapping(cfg, m, { apply, withSecrets, noRestart }) {
   if (!apply) { console.log('    ' + c.yellow(`dry-run: ${plan.commands.length} команд не отправлено (запусти с --apply)`)); return { title, total: plan.total, applied: false }; }
 
   const r = await applyPlan(ctx, plan);
-  if (!r.ok) { console.log('    ' + c.red(`✗ ошибки RCI: ${r.errors.length}`)); r.errors.slice(0, 8).forEach((e) => console.log(c.red('      ' + e))); return { title, error: 'rci', applied: false }; }
+  if (!r.ok) { console.log('    ' + c.red(`✗ ошибки RCI: ${r.errors.length}`)); r.errors.slice(0, 8).forEach((e) => console.log(c.red('      ' + safeMessage(e)))); return { title, error: 'rci', applied: false }; }
   console.log('    ' + (r.remaining === 0 ? c.green('✓ применено и сохранено · расхождений по подсетям не осталось') : c.yellow(`применено, остаток подсетей: ${r.remaining}`)));
   return { title, total: plan.total, applied: true, remaining: r.remaining };
 }

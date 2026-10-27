@@ -84,9 +84,9 @@ export function startServer(configPath, port = 8787, host = '127.0.0.1') {
         res.end(html);
         return;
       }
-      if (req.method === 'GET' && ['/mappings.js', '/mappings.css', '/sync.js', '/sync.css', '/speed.js', '/traffic.js', '/traffic.css', '/design.css', '/order.js'].includes(p)) {
+      if (req.method === 'GET' && ['/mappings.js', '/mappings.css', '/sync.js', '/sync.css', '/speed.js', '/traffic.js', '/traffic.css', '/design.css', '/order.js', '/awg.js'].includes(p)) {
         res.writeHead(200, { 'Content-Type': p.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8', 'Cache-Control': 'no-cache' });
-        res.end(fs.readFileSync(path.join(DIR, '..', 'web', p === '/order.js' ? 'order.cjs' : p.slice(1)))); return;
+        res.end(fs.readFileSync(path.join(DIR, '..', 'web', p === '/order.js' ? 'order.cjs' : p === '/awg.js' ? 'awg.cjs' : p.slice(1)))); return;
       }
 
       // Список маппингов (без кредов) — для вкладки синхронизации.

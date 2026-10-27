@@ -115,6 +115,7 @@ export function httpUrl(value) {
 }
 
 export const safeMessage = message => String(message || 'Ошибка сервера')
-  .replace(/\b(private-key|preshared-key)\s+\S+/gi, '$1 [скрыто]')
+  .replace(/\b(private-key|preshared-key|header-protection-key)\s+\S+/gi, '$1 [скрыто]')
+  .replace(/[A-Za-z0-9+/]{43}=/g, '[скрыто]')
   .replace(/((?:password|token|secret)["']?\s*[:=]\s*)["']?[^,\s}"']+/gi, '$1[скрыто]')
   .slice(0, 1000);

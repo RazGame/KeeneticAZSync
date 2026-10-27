@@ -1,6 +1,7 @@
 // Из распарсенного .conf строим желаемое состояние роутера для AntiZapret-интерфейса.
 import { parseCidr } from './util/net.js';
 import { ifaceAddressIp } from './conf.js';
+import Awg from '../web/awg.cjs';
 
 export const DNS_IP = '77.88.8.8';
 export const DNS_KEY = '77.88.8.8/32';
@@ -28,26 +29,17 @@ export function buildDesired(conf) {
 // Строка параметров AmneziaWG asc (без префикса `interface X wireguard asc`).
 // Формат KeenOS 4.2+: Jc Jmin Jmax S1 S2 H1 H2 H3 H4.
 // KeenOS 5.1+ дополнительно принимает S3 S4 I1 I2 I3 I4 I5 (только если они реально заданы).
-export function buildAscLine(awg, extended = false) {
-  if (!awg || awg.Jc == null) return null;
-  const g = (k) => (awg[k] != null ? awg[k] : '');
-  const base = [
-    g('Jc'), g('Jmin'), g('Jmax'), g('S1'), g('S2'),
-    g('H1'), g('H2'), g('H3'), g('H4'),
-  ];
-  const hasExtended = Boolean(awg.I1 || awg.I2 || awg.I3 || awg.I4 || awg.I5 || awg.S3 || awg.S4);
-  if (!extended || !hasExtended) return base.join(' ');
-  const q = (k) => `"${g(k)}"`;
-  return [...base, g('S3') || '0', g('S4') || '0', q('I1'), q('I2'), q('I3'), q('I4'), q('I5')].join(' ');
+export function buildAscLine(awg, extended = false, modern = false, resetModern = false) {
+  return Awg.build(awg, { extended, modern, resetModern });
 }
 
 // Параметры интерфейса/пира из .conf.
-export function desiredInterface(conf, extendedAsc = false) {
+export function desiredInterface(conf, extendedAsc = false, modernAsc = false, resetModern = false) {
   return {
     address: { ip: ifaceAddressIp(conf), mask: '255.255.255.255' },
     mtu: conf.iface.mtu || null,
     dns: (conf.iface.dns || []).filter((x) => x.includes('.') && !x.includes(':')),
-    ascLine: buildAscLine(conf.awg, extendedAsc),
+    ascLine: buildAscLine(conf.awg, extendedAsc, modernAsc, resetModern),
     privateKey: conf.iface.privateKey || null,
     peer: {
       pubkey: conf.peer.publicKey,

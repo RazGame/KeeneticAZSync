@@ -206,6 +206,23 @@ export class Keenetic {
     return null;
   }
 
+  // RCI help parses a command without executing it. Firmware labels alone do
+  // not distinguish early 5.2 builds that lack the AWG 3.x arguments.
+  async supportsModernAsc(name = 'Wireguard0') {
+    if (!/^Wireguard\d+$/.test(name)) throw new Error('Некорректное имя WireGuard-интерфейса');
+    const r = await request({
+      url: this.base + '/rci/', method: 'POST', jar: this.jar, insecure: this.insecure,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ help: `interface ${name} wireguard asc ` }), timeout: 20000,
+    });
+    if (r.status !== 200) throw new Error('Не удалось проверить поддержку ASC 3.1 на роутере');
+    let data;
+    try { data = JSON.parse(r.text); } catch { throw new Error('Не удалось прочитать справку ASC роутера'); }
+    const hint = data?.help?.hint;
+    if (typeof hint !== 'string' || !hint.includes('{jc}')) throw new Error('Роутер не подтвердил доступность команды ASC');
+    return ['header-protection-key', 'content-padding-addition-start', 'rekey-after-time-start', 'random-trailers', 'disable-cookies'].every(k => hint.includes(`{${k}}`));
+  }
+
   // Состояния интерфейсов (по description): up/down, connected (yes/no), link.
   async interfaceStates() {
     let data;

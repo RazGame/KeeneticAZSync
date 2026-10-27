@@ -1352,7 +1352,7 @@
                 <div class="converter-download"><strong>Маршруты .bat</strong><p>Команды добавления маршрутов.</p><button id="cvDlBat" disabled>Скачать routes.bat</button></div>
               </div>
               <div id="cvAscPanel" class="converter-asc" hidden>
-                <label class="access-field" for="cvAsc">Команда ASC</label><p class="config-hint">Короткий формат для интерфейса Wireguard0.</p>
+                <label class="access-field" for="cvAsc">Команда ASC</label><p id="cvAscHint" class="config-hint">Для интерфейса Wireguard0.</p>
                 <div class="converter-copy"><input id="cvAsc" readonly><button class="sm" id="cvCopyAsc">Копировать</button></div>
               </div>
             </div>
@@ -1410,6 +1410,7 @@
 </div>
 
 <script src="/order.js"></script>
+<script src="/awg.js"></script>
 <script src="/mappings.js"></script>
 <script src="/speed.js"></script>
 <script src="/traffic.js"></script>
@@ -2110,7 +2111,7 @@ $('#importForm').onsubmit=async(e)=>{
   function addrIp(raw){const a=getVal(raw,'Address').split(',')[0].trim().split('/')[0].trim();if(!a)throw new Error('плохой Address');return a;}
   function patch(raw){const re=/^(\s*AllowedIPs\s*=\s*)(.*?)(\s*)$/im;const m=raw.match(re);if(!m)throw new Error("'AllowedIPs' не найден");const a=m[2].split(',').map(s=>s.trim()).filter(Boolean);const has=a.some(x=>x.toLowerCase()===REQ_ALLOWED.toLowerCase());if(!has)a.push(REQ_ALLOWED);return{text:raw.replace(re,m[1]+a.join(', ')+m[3]),added:!has};}
   function toRoute(c){const p=c.split('/');if(p.length!==2)throw new Error('плохой CIDR '+c);const pt=p[1].trim();if(!/^\d+$/.test(pt))throw new Error('плохой префикс '+c);return 'route add '+p[0].trim()+' mask '+cidrMask(Number(pt))+' 0.0.0.0 :: rem AntiZapretAWG';}
-  function asc(raw){const v=['Jc','Jmin','Jmax','S1','S2','H1','H2','H3','H4'].map(k=>getVal(raw,k,false));return v.some(x=>x===null)?'':'interface Wireguard0 wireguard asc '+v.join(' ');}
+  function asc(raw){const fields=Awg.parseFields(raw),line=Awg.build(fields,{extended:true,modern:true});el('cvAscHint').textContent=Awg.hasModern(fields)?'AWG 3.1 · нужна поддержка ASC 3.1 (NetcrazeOS/KeeneticOS 5.2 Alpha 11 или новее). Команда содержит ключ защиты заголовков, если он задан в файле.':line&&Awg.tokens(line).length>9?'Расширенный формат · нужна NetcrazeOS/KeeneticOS 5.1 или новее.':'Короткий формат для интерфейса Wireguard0.';return line?'interface Wireguard0 wireguard asc '+line:'';}
   const baseName=fn=>{const i=fn.lastIndexOf('.');return i>0?fn.slice(0,i):fn;};
   async function handle(file){
     const version=++fileVersion;

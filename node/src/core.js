@@ -10,16 +10,14 @@ import { buildDesired, desiredInterface } from './transform.js';
 import { resolveMapping } from './config.js';
 import { parseCidr, allowToken } from './util/net.js';
 import { useWireguardDomain, useOpenvpnDomain } from './endpoint.js';
+import Awg from '../web/awg.cjs';
 
 const diffSets = (current, desired) => ({
   add: [...desired].filter((x) => !current.has(x)),
   del: [...current].filter((x) => !desired.has(x)),
 });
-const normAsc = (s) => (s || '')
-  .replace(/\s+/g, ' ')
-  .replace(/(?:\s+0\s+0(?:\s+""|\s+"")*)?$/, '')
-  .trim();
-export const maskCmd = (cmd) => cmd.replace(/((?:private-key|preshared-key) )\S+/g, '$1***');
+export const maskCmd = (cmd) => cmd.replace(/((?:private-key|preshared-key|header-protection-key) )\S+/g, '$1***')
+  .replace(/[A-Za-z0-9+/]{43}=/g, '***');
 const supportsExtendedAsc = (version) => {
   const m = String(version || '').match(/\b(\d+)\.(\d+)/);
   if (!m) return false;
@@ -78,7 +76,7 @@ function paramDiff(iface, want, nsMap, withSecrets) {
     out.push({ label: `ip address → ${want.address.ip}`, cmd: `interface ${name} ip address ${want.address.ip} 255.255.255.255` });
   if (want.mtu && String(iface.mtu) !== String(want.mtu))
     out.push({ label: `ip mtu → ${want.mtu}`, cmd: `interface ${name} ip mtu ${want.mtu}` });
-  if (want.ascLine && normAsc(iface.ascLine) !== normAsc(want.ascLine))
+  if (want.ascLine && !Awg.equal(iface.ascLine, want.ascLine))
     out.push({ label: `wireguard asc (obfuscation)`, cmd: `interface ${name} wireguard asc ${want.ascLine}` });
   if (want.peer.endpoint && iface.peer.endpoint !== want.peer.endpoint)
     out.push({ label: `endpoint → ${want.peer.endpoint}`, cmd: `interface ${name} wireguard peer ${pub} endpoint ${want.peer.endpoint}` });
@@ -142,7 +140,11 @@ export async function prepare(cfg, m) {
   const base = await prepareStep(`Подключение к роутеру «${m.router}»`, () => keen.connect());
   const lines = await prepareStep(`Чтение настроек роутера «${m.router}»`, () => keen.runningConfig());
   const keenOsVersion = await keen.keenOsVersion();
-  return { kind: 'wireguard', panel, router, keen, base, client, conf, lines, mapping: m, keenOsVersion, extendedAsc: supportsExtendedAsc(keenOsVersion), managedDescriptions };
+  const iface = parseInterfaces(lines).find(i => i.description === m.interface || (!i.description && i.name === m.interface));
+  const currentModern = iface?.ascLine ? Awg.tokens(iface.ascLine).length === 31 : false;
+  const modernAsc = Awg.hasModern(conf.awg) || currentModern
+    ? await prepareStep(`Проверка поддержки AmneziaWG 3.1 на «${m.router}»`, () => keen.supportsModernAsc(iface?.name)) : false;
+  return { kind: 'wireguard', panel, router, keen, base, client, conf, lines, mapping: m, keenOsVersion, modernAsc, extendedAsc: supportsExtendedAsc(keenOsVersion), managedDescriptions };
 }
 
 // Команды создания OpenVPN-интерфейса. Сам .ovpn заливается отдельно (RCI-деревом),
@@ -234,17 +236,18 @@ async function applyOvpnPlan(ctx, plan) {
 function computeBasePlan(ctx, opts = {}) {
   if (ctx.kind === 'openvpn') return computeOvpnPlan(ctx, opts);
   const { withSecrets = false, noRestart = false } = opts;
-  const { conf, lines, mapping, client, base, panel, keenOsVersion, extendedAsc } = ctx;
+  const { conf, lines, mapping, client, base, panel, keenOsVersion, extendedAsc, modernAsc = false } = ctx;
   const ifaces = parseInterfaces(lines);
   const iface = ifaces.find((i) => i.description === mapping.interface) || ifaces.find((i) => !i.description && i.name === mapping.interface);
   const desired = buildDesired(conf);
-  const want = desiredInterface(conf, extendedAsc);
+  const currentModern = iface?.ascLine ? Awg.tokens(iface.ascLine).length === 31 : false;
+  const want = desiredInterface(conf, extendedAsc, modernAsc, currentModern);
   const meta = {
     kind: 'wireguard',
     panelUrl: panel.url, client: client.name, clientId: client.id,
     allowedIps: conf.peer.allowedIps.length, routerBase: base,
     interface: mapping.interface,
-    keenOsVersion: keenOsVersion || 'unknown', ascFormat: extendedAsc ? 'extended' : 'short',
+    keenOsVersion: keenOsVersion || 'unknown', ascFormat: Awg.hasModern(conf.awg) || currentModern ? '3.1' : extendedAsc ? 'extended' : 'short',
   };
 
   if (!iface) {
@@ -384,9 +387,14 @@ async function applyPreparedPlan(ctx, plan) {
 
   let lines2;
   try { lines2 = await keen.runningConfig(); }
-  catch { return { ok: true, applied: plan.commands.length, remaining: 0, verified: false, foundAfter: null }; }
+  catch {
+    if (Awg.hasModern(conf.awg)) return { ok: false, applied: plan.commands.length, remaining: null, verified: false, foundAfter: null,
+      errors: ['Настройки отправлены, но не удалось проверить ASC 3.1 чтением с роутера. Выполните проверку повторно'] };
+    return { ok: true, applied: plan.commands.length, remaining: 0, verified: false, foundAfter: null };
+  }
   const if2 = parseInterfaces(lines2).find((i) => i.description === mapping.interface || (!i.description && i.name === mapping.interface));
   let remaining = 0;
+  let ascVerified = true;
   if (if2 && if2.peer) {
     const desired = buildDesired(conf);
     const r2 = parseRoutes(lines2, if2.name);
@@ -394,6 +402,10 @@ async function applyPreparedPlan(ctx, plan) {
       diffSets(if2.allowIps, desired.allowIps).add.length + diffSets(if2.allowIps, desired.allowIps).del.length +
       diffSets(r2.awg, desired.awgRoutes).add.length + diffSets(r2.awg, desired.awgRoutes).del.length +
       diffSets(r2.awg6, desired.awgRoutes6).add.length + diffSets(r2.awg6, desired.awgRoutes6).del.length;
+    const wantAsc = desiredInterface(conf, ctx.extendedAsc, ctx.modernAsc, Awg.tokens(if2.ascLine).length === 31).ascLine;
+    if (wantAsc && !Awg.equal(if2.ascLine, wantAsc)) { ascVerified = false; remaining++; }
   }
-  return { ok: true, applied: plan.commands.length, remaining, created: plan.mode === 'create', foundAfter: !!if2 };
+  if (!if2 && Object.keys(conf.awg || {}).length) { ascVerified = false; remaining++; }
+  return { ok: ascVerified, applied: plan.commands.length, remaining, created: plan.mode === 'create', foundAfter: !!if2,
+    ...(!ascVerified ? { errors: ['Роутер не подтвердил параметры ASC после записи. Проверьте план изменений повторно'] } : {}) };
 }
