@@ -12,9 +12,9 @@
 .traffic-identity { min-width:0;flex:1; }
 .traffic-identity strong { display:block;font-size:15px;overflow-wrap:anywhere; }
 .traffic-connection { display:block;margin-top:5px;color:var(--muted);font-size:12px;overflow-wrap:anywhere; }
-.traffic-badge { padding:4px 8px;border:1px solid #c7d9d5;border-radius:20px;font-size:11px;background:#edf8f4;color:var(--green);flex:none; }
+.traffic-badge { padding:4px 8px;border:1px solid var(--line);border-radius:20px;font-size:11px;background:var(--green-bg);color:var(--green);flex:none; }
 .traffic-badge.wait { color:var(--muted);border-color:var(--line);background:var(--surface-subtle); }
-.traffic-badge.error { color:var(--red);border-color:#f1d5da;background:#fff5f6; }
+.traffic-badge.error { color:var(--red);border-color:var(--danger-border);background:var(--red-bg); }
 .traffic-body { margin:0 12px 12px;padding:20px 16px 12px;background:var(--panel);border:1px solid var(--line);border-radius:6px; }
 .traffic-rates { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0 8px 18px; }
 .traffic-metric { min-width:0; }
@@ -22,8 +22,8 @@
 .traffic-metric > span::before { content:'';width:7px;height:7px;border-radius:50%;background:var(--traffic-color); }
 .traffic-metric strong { display:block;font-size:30px;line-height:1.25;font-weight:700;letter-spacing:-.8px;color:var(--traffic-color);margin-top:6px;overflow-wrap:anywhere; }
 .traffic-metric small { display:block;color:var(--muted);font-size:11px;margin-top:5px;line-height:1.5; }
-.traffic-download { --traffic-color:#0079d8; }
-.traffic-upload { --traffic-color:#8661cf; }
+.traffic-download { --traffic-color:var(--chart-down); }
+.traffic-upload { --traffic-color:var(--chart-up); }
 .traffic-chart { position:relative;min-height:170px; }
 .traffic-chart svg { width:100%;height:auto;display:block;overflow:visible;touch-action:pan-y; }
 .traffic-tooltip { position:absolute;right:12px;top:0;max-width:85%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);box-shadow:0 3px 12px #102b4912;white-space:pre-line;pointer-events:none;font-size:11px;line-height:1.6; }

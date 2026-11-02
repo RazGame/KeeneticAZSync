@@ -76,7 +76,7 @@ button:focus-visible, summary:focus-visible, input[type="checkbox"]:focus-visibl
 .ss-protocol { display: inline-block; }
 .ss-columns { background: var(--surface-subtle); }
 .access-card > summary { padding: 18px var(--card-padding); }
-.access-card > summary:hover { background: #dce5ee; }
+.access-card > summary:hover { background: var(--router-hover); }
 .access-card > summary > .access-symbol { background: var(--panel); }
 .access-card > .access-editor { background: var(--panel); border: 1px solid var(--line); }
 .access-editor, .mw-body { padding: var(--card-padding); }

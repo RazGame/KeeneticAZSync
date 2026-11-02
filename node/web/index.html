@@ -14,6 +14,14 @@
   document.documentElement.dataset.sidebarCollapsed = String(collapsed);
 })();
 </script>
+<script id="themeBoot">
+(() => {
+  let preference = 'auto';
+  try { const saved = localStorage.getItem('awg_sync_theme'); if (['auto', 'light', 'dark'].includes(saved)) preference = saved; } catch {}
+  document.documentElement.dataset.themePreference = preference;
+  document.documentElement.dataset.theme = preference === 'auto' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : preference;
+})();
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -75,7 +83,7 @@
     text-transform: uppercase;
   }
   .header .logo span {
-    color: #1a202c;
+    color: var(--text);
     font-weight: 300;
   }
   .header .status-bar {
@@ -165,7 +173,7 @@
     width: 0;
   }
   .rail .nav:hover {
-    background: #f3f6f9;
+    background: var(--hover);
   }
   .rail .nav:hover svg {
     stroke: var(--text);
@@ -197,7 +205,7 @@
     text-align: left;
   }
   .sidebar-toggle:hover {
-    background: #f3f6f9;
+    background: var(--hover);
     color: var(--text);
   }
   .sidebar-toggle svg {
@@ -296,7 +304,7 @@
     padding: 8px 16px;
     font-weight: 700;
     cursor: pointer;
-    background: #ffffff;
+    background: var(--panel);
     color: var(--text);
     font-size: 13px;
     transition: all 0.15s ease;
@@ -306,33 +314,33 @@
     gap: 6px;
   }
   button:hover {
-    background: #f5f7f9;
-    border-color: #b2c4d4;
+    background: var(--control-hover);
+    border-color: var(--line-strong);
   }
   button:disabled {
     opacity: .5;
     cursor: default;
-    background: #ffffff !important;
+    background: var(--panel) !important;
     border-color: var(--line) !important;
     color: var(--muted) !important;
   }
   button.primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #ffffff;
+    background: var(--primary-bg);
+    border-color: var(--primary-bg);
+    color: var(--primary-text);
   }
   button.primary:hover {
-    background: var(--accent-hover);
-    border-color: var(--accent-hover);
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
   }
   button.danger {
-    background: #ffffff;
-    border-color: #ffccd0;
-    color: #cc0011;
+    background: var(--panel);
+    border-color: var(--danger-border);
+    color: var(--danger-text);
   }
   button.danger:hover {
-    background: #fff5f5;
-    border-color: #ff999f;
+    background: var(--danger-hover);
+    border-color: var(--danger-border-hover);
   }
   button.sm {
     padding: 6px 12px;
@@ -389,7 +397,7 @@
   .sw .sl {
     position: absolute;
     inset: 0;
-    background: #ced4da;
+    background: var(--switch-track);
     border-radius: 999px;
     transition: .2s;
     cursor: pointer;
@@ -401,7 +409,7 @@
     height: 16px;
     left: 3px;
     top: 3px;
-    background: #ffffff;
+    background: var(--switch-knob);
     border-radius: 50%;
     transition: .2s;
     box-shadow: 0 1px 3px rgba(0,0,0,0.15);
@@ -441,7 +449,7 @@
     transition: border-color 0.15s;
   }
   .card:hover {
-    border-color: #b2c4d4;
+    border-color: var(--line-strong);
   }
   .card .top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .card .name { font-weight: 800; font-size: 16px; color: var(--text); }
@@ -514,29 +522,29 @@
     letter-spacing: 0.5px;
     border-bottom: 1px solid var(--line);
   }
-  .grp.add { border-color: #c3e6cb; }
-  .grp.add .h { background: #e2f0d9; color: #155724; }
-  .grp.del { border-color: #f5c6cb; }
-  .grp.del .h { background: #f8d7da; color: #721c24; }
-  .grp.par { border-color: #bee5eb; }
-  .grp.par .h { background: #d1ecf1; color: #0c5460; }
+  .grp.add { border-color: var(--line); }
+  .grp.add .h { background: var(--green-bg); color: var(--green); }
+  .grp.del { border-color: var(--line); }
+  .grp.del .h { background: var(--red-bg); color: var(--red); }
+  .grp.par { border-color: var(--line); }
+  .grp.par .h { background: var(--info-bg); color: var(--info); }
   
   .items {
     font-family: Consolas, Monaco, monospace;
     font-size: 12px;
-    color: #2c3e50;
+    color: var(--text);
     white-space: pre-wrap;
     word-break: break-all;
-    background: #fafbfc;
+    background: var(--surface-subtle);
     padding: 10px 12px;
     margin: 0;
   }
-  .items .more { color: #5b7795; }
+  .items .more { color: var(--muted); }
   
   .restart {
     color: var(--yellow);
     background: var(--yellow-bg);
-    border: 1px solid #ffeeba;
+    border: 1px solid var(--line);
     padding: 8px 12px;
     border-radius: 4px;
     font-size: 13px;
@@ -567,11 +575,11 @@
     border-bottom: 2px solid var(--line);
     text-transform: uppercase;
     letter-spacing: .5px;
-    background: #f8f9fa;
+    background: var(--surface-subtle);
   }
   td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
   td input, td select { width: 100%; }
-  tr:hover td { background: #fcfdfe; }
+  tr:hover td { background: var(--hover); }
 
   /* Custom mappings dropdown styles */
   .m-select-wrapper {
@@ -596,14 +604,14 @@
     gap: 14px;
   }
   .mapping-card {
-    background: #ffffff;
+    background: var(--panel);
     border: 1px solid var(--line);
     border-radius: 8px;
     padding: 14px 18px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.02);
   }
   .mapping-card:hover {
-    border-color: #b2c4d4;
+    border-color: var(--line-strong);
   }
   .m-card-header {
     display: flex;
@@ -626,11 +634,11 @@
   }
   .m-card-header input.m-name:hover {
     border-color: var(--line);
-    background: #f8f9fa;
+    background: var(--surface-subtle);
   }
   .m-card-header input.m-name:focus {
     border-color: var(--accent);
-    background: #ffffff;
+    background: var(--panel);
     outline: 0;
   }
   .m-card-actions {
@@ -683,12 +691,12 @@
   }
   .credhead input:hover {
     border-color: var(--line);
-    background: #f8f9fa;
+    background: var(--surface-subtle);
   }
   .credhead input:focus {
     outline: 0;
     border-color: var(--accent);
-    background: #ffffff;
+    background: var(--panel);
     box-shadow: 0 0 0 3px rgba(0, 115, 230, 0.15);
   }
 
@@ -861,13 +869,13 @@
     background: rgba(16, 124, 65, 0.1);
   }
   .btn-switch {
-    background: var(--accent);
-    color: #fff;
-    border-color: var(--accent);
+    background: var(--primary-bg);
+    color: var(--primary-text);
+    border-color: var(--primary-bg);
     font-weight: 600;
   }
   .btn-switch:hover {
-    background: var(--accent-hover);
+    background: var(--primary-hover);
   }
   /* Кнопки заворачиваем во внутренний div: display:flex прямо на <td>
      выключает ячейку из табличной раскладки и ломает ширины колонок. */
@@ -903,7 +911,7 @@
   /* Доступы: обзор подключений, редактирование внутри раскрываемых карточек. */
   #tab-access [hidden] { display: none !important; }
   .access-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
-  .access-tabs { display: inline-flex; gap: 4px; padding: 4px; background: #e3eaf0; border-radius: 8px; }
+  .access-tabs { display: inline-flex; gap: 4px; padding: 4px; background: var(--router-surface); border-radius: 8px; }
   .access-tabs button { display: flex; align-items: center; gap: 10px; border: 0; background: transparent; box-shadow: none; padding: 8px 16px; color: var(--muted); }
   .access-tabs button[aria-selected="true"] { color: var(--text); background: var(--panel); box-shadow: 0 1px 4px #1a202c12; }
   .access-count { font-size: 12px; padding: 0 6px; border-radius: 5px; background: var(--bg); color: var(--muted); }
@@ -913,7 +921,7 @@
   .access-card.server-block { margin: 0; }
   .access-card > summary { list-style: none; display: flex; align-items: center; gap: 16px; padding: 18px 20px; cursor: pointer; }
   .access-card > summary::-webkit-details-marker, .access-connection > summary::-webkit-details-marker { display: none; }
-  .access-card > summary:hover { background: #f8fafc; }
+  .access-card > summary:hover { background: var(--surface-subtle); }
   .access-card > summary:focus-visible, .access-connection > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
   .access-symbol { flex: 0 0 40px; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-light); color: var(--accent); }
   .access-symbol svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
@@ -921,8 +929,8 @@
   .access-title { display: block; font-size: 15px; overflow-wrap: anywhere; }
   .access-subtitle { display: block; margin-top: 3px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
   .access-summary-meta { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 48%; }
-  .access-tag { display: inline-block; padding: 3px 9px; border: 1px solid var(--line); border-radius: 5px; font-size: 12px; font-weight: 600; color: #526678; background: #f8fafc; overflow-wrap: anywhere; }
-  .access-tag.domain { color: #0063b8; background: var(--accent-light); border-color: #d1e7fc; }
+  .access-tag { display: inline-block; padding: 3px 9px; border: 1px solid var(--line); border-radius: 5px; font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface-subtle); overflow-wrap: anywhere; }
+  .access-tag.domain { color: var(--info); background: var(--accent-light); border-color: var(--line); }
   .access-chevron { color: var(--muted); display: inline-block; transition: transform .15s; }
   .access-card[open] > summary .access-chevron, .access-connection[open] > summary .access-chevron { transform: rotate(90deg); }
   .access-editor { border-top: 1px solid var(--line); padding: 20px; }
@@ -931,14 +939,14 @@
   .access-field > input, .access-field > select, .access-field > textarea { width: 100%; min-width: 0; }
   .access-field small { color: var(--muted); font-weight: 400; font-size: 12px; }
   .access-editor h4 { font-size: 13px; margin: 24px 0 12px; }
-  .access-domain-settings { margin-top: 20px; padding: 16px; background: #f7f9fb; border-radius: 8px; }
+  .access-domain-settings { margin-top: 20px; padding: 16px; background: var(--surface-subtle); border-radius: 8px; }
   .access-domain-settings .access-form-grid { align-items: center; }
   .access-check { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; cursor: pointer; }
   .access-check input[type="checkbox"] { flex: 0 0 auto; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
   .access-check small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; font-weight: 400; }
   .access-connections { display: flex; flex-direction: column; gap: 10px; }
   .access-connection { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .access-connection > summary { list-style: none; display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; background: #f8fafc; }
+  .access-connection > summary { list-style: none; display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; background: var(--surface-subtle); }
   .access-connection > summary > .access-chevron { margin-left: auto; }
   .access-connection .access-editor { padding: 16px; }
   .access-wide { grid-column: 1 / -1; }
@@ -964,9 +972,9 @@
   .config-actions button { min-height: 38px; }
   .config-source { display: flex; gap: 6px; flex-wrap: wrap; }
   .config-source button { border-color: transparent; padding: 6px 12px; color: var(--muted); }
-  .config-source button[aria-pressed="true"] { background: var(--accent-light); color: var(--accent); border-color: #d1e7fc; }
-  .config-file-picker { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 16px; border: 1px dashed #b4c5d5; border-radius: 8px; cursor: pointer; background: #f8fafc; }
-  .config-file-picker:hover { border-color: var(--accent); background: #f1f7fd; }
+  .config-source button[aria-pressed="true"] { background: var(--accent-light); color: var(--accent); border-color: var(--line); }
+  .config-file-picker { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 16px; border: 1px dashed var(--line-strong); border-radius: 8px; cursor: pointer; background: var(--surface-subtle); }
+  .config-file-picker:hover { border-color: var(--accent); background: var(--accent-light); }
   .config-file-picker:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
   .config-file-picker input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
   .config-file-picker > span:first-of-type { min-width: 0; }
@@ -975,18 +983,18 @@
   .config-file-action { flex-shrink: 0; color: var(--accent); font-size: 12px; font-weight: 600; }
   #importText { resize: vertical; min-height: 140px; }
   #tab-convert [hidden] { display: none !important; }
-  .converter-status { padding: 12px 14px; border-radius: 7px; font-size: 13px; background: var(--accent-light); color: #0059a8; }
+  .converter-status { padding: 12px 14px; border-radius: 7px; font-size: 13px; background: var(--accent-light); color: var(--info); }
   .converter-status[data-state="success"] { background: var(--green-bg); color: var(--green); }
   .converter-status[data-state="error"] { background: var(--red-bg); color: var(--red); overflow-wrap: anywhere; }
   .converter-help { font-size: 13px; color: var(--muted); }
   .converter-help summary { cursor: pointer; }
   .converter-help ul { padding-left: 20px; margin: 12px 0 0; }
   .converter-help li + li { margin-top: 8px; }
-  .converter-empty { padding: 28px 20px; border: 1px dashed var(--line); border-radius: 8px; text-align: center; background: #f8fafc; color: var(--muted); }
+  .converter-empty { padding: 28px 20px; border: 1px dashed var(--line); border-radius: 8px; text-align: center; background: var(--surface-subtle); color: var(--muted); }
   .converter-empty strong { font-size: 14px; color: var(--text); }
   .converter-empty p { font-size: 13px; margin: 8px 0 0; }
   .converter-downloads { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
-  .converter-download { padding: 16px; background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+  .converter-download { padding: 16px; background: var(--surface-subtle); border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
   .converter-download strong { font-size: 14px; }
   .converter-download p { margin: 6px 0 16px; color: var(--muted); font-size: 12px; }
   .converter-download button { font-size: 12px; padding: 8px 10px; white-space: nowrap; }
@@ -1143,7 +1151,7 @@
     opacity: 1;
   }
   .modal-content {
-    background: #ffffff;
+    background: var(--panel);
     border: 1px solid var(--line);
     border-radius: 8px;
     width: 90%;
@@ -1185,7 +1193,7 @@
     display: flex;
     justify-content: flex-end;
     gap: 12px;
-    background: #f8f9fa;
+    background: var(--surface-subtle);
   }
   #loginScreen {
     height: 100vh;
@@ -1198,12 +1206,17 @@
 <link rel="stylesheet" href="/sync.css">
 <link rel="stylesheet" href="/traffic.css">
 <link rel="stylesheet" href="/design.css">
+<link rel="stylesheet" href="/theme.css">
 </head>
 <body>
 <div id="appContainer">
 <header class="header">
   <div class="logo">Keenetic <span>AZ Sync</span></div>
   <div class="status-bar">
+    <details class="theme-menu" data-theme-picker>
+      <summary aria-label="Цветовая тема"><svg class="theme-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg><svg class="theme-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z"/></svg><span class="theme-label">Тема</span></summary>
+      <div class="theme-options" role="group" aria-label="Выбор темы"><button type="button" data-theme-option="auto" aria-pressed="true">Как на устройстве</button><button type="button" data-theme-option="light" aria-pressed="false">Светлая</button><button type="button" data-theme-option="dark" aria-pressed="false">Тёмная</button></div>
+    </details>
     <button id="logoutBtn" class="sm danger" style="display: none;">Выйти</button>
   </div>
 </header>
@@ -1388,6 +1401,7 @@
 </div> <!-- /appContainer -->
 
 <div id="loginScreen" style="display: none; align-items: center; justify-content: center; background: var(--bg); padding: 20px;">
+  <details class="theme-menu login-theme-picker" data-theme-picker><summary aria-label="Цветовая тема"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z"/></svg><span class="theme-label">Тема</span></summary><div class="theme-options" role="group" aria-label="Выбор темы"><button type="button" data-theme-option="auto" aria-pressed="true">Как на устройстве</button><button type="button" data-theme-option="light" aria-pressed="false">Светлая</button><button type="button" data-theme-option="dark" aria-pressed="false">Тёмная</button></div></details>
   <div class="panel" style="width: 100%; max-width: 400px; padding: 30px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin: auto;">
     <div style="font-size: 24px; font-weight: 800; text-align: center; margin-bottom: 8px; color: var(--accent);">Keenetic <span style="color: var(--text); font-weight: 300;">AZ Sync</span></div>
     <div style="font-size: 13px; color: var(--muted); text-align: center; margin-bottom: 24px; font-weight: 600;">Вход в панель управления</div>
@@ -1410,6 +1424,7 @@
 </div>
 
 <script src="/order.js"></script>
+<script src="/theme.js"></script>
 <script src="/awg.js"></script>
 <script src="/mappings.js"></script>
 <script src="/speed.js"></script>
