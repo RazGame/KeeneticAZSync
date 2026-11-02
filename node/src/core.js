@@ -76,8 +76,14 @@ function paramDiff(iface, want, nsMap, withSecrets) {
     out.push({ label: `ip address → ${want.address.ip}`, cmd: `interface ${name} ip address ${want.address.ip} 255.255.255.255` });
   if (want.mtu && String(iface.mtu) !== String(want.mtu))
     out.push({ label: `ip mtu → ${want.mtu}`, cmd: `interface ${name} ip mtu ${want.mtu}` });
-  if (want.ascLine && !Awg.equal(iface.ascLine, want.ascLine))
+  if (want.ascLine && !Awg.equal(iface.ascLine, want.ascLine)) {
+    const reset = Awg.protectionResetLine(iface.ascLine, want.ascLine);
+    if (reset) out.push(
+      { label: 'Отключить прежнюю защиту заголовков', cmd: `interface ${name} wireguard asc ${reset}` },
+      { label: 'Сбросить прежние параметры ASC', cmd: `interface ${name} no wireguard asc` },
+    );
     out.push({ label: `wireguard asc (obfuscation)`, cmd: `interface ${name} wireguard asc ${want.ascLine}` });
+  }
   if (want.peer.endpoint && iface.peer.endpoint !== want.peer.endpoint)
     out.push({ label: `endpoint → ${want.peer.endpoint}`, cmd: `interface ${name} wireguard peer ${pub} endpoint ${want.peer.endpoint}` });
   if (want.peer.keepalive && String(iface.peer.keepalive) !== String(want.peer.keepalive))
@@ -362,9 +368,16 @@ export async function applyPlan(ctx, plan) {
     const errors = [e.message];
     // Не повторяем неудачную запись. Освобождаем адрес нового VPN и возвращаем
     // ранее включённые управляемые интерфейсы отдельной попыткой восстановления.
-    const restore = started ? [`interface ${a.target} down`] : [];
+    let targetExists = true;
+    if (started) {
+      try {
+        const current = ctx.kind === 'openvpn' ? await keen.openvpnInterfaces() : parseInterfaces(await keen.runningConfig());
+        targetExists = current.some(i => i.name === a.target);
+      } catch { /* If status is unavailable, retain the best-effort rollback. */ }
+    }
+    const restore = started && targetExists ? [`interface ${a.target} down`] : [];
     restore.push(...a.disable.map(i => `interface ${i.name} up`));
-    if (started && a.wasEnabled && !a.disable.length) restore.push(`interface ${a.target} up`);
+    if (started && targetExists && a.wasEnabled && !a.disable.length) restore.push(`interface ${a.target} up`);
     if (restore.length) {
       try {
         const result = await keen.rci([...restore, 'system configuration save']);
@@ -381,9 +394,39 @@ async function applyPreparedPlan(ctx, plan) {
   if (ctx.kind === 'openvpn') return applyOvpnPlan(ctx, plan);
   const { keen, conf, mapping } = ctx;
   if (!plan.commands.length && !plan.activation?.disable.length) return { ok: true, applied: 0, remaining: 0 };
-  const res = await keen.rci([...plan.commands, 'system configuration save']);
-  const errors = Keenetic.collectErrors(res);
-  if (errors.length) return { ok: false, errors };
+  let ascTouched = false;
+  const send = async commands => {
+    const errors = Keenetic.collectErrors(await keen.rci(commands));
+    if (errors.length) throw new Error(errors.join('; '));
+  };
+  try {
+    let batch = [];
+    for (const command of plan.commands) {
+      const asc = command.match(/^interface (Wireguard\d+) (wireguard asc (.+)|no wireguard asc)$/);
+      if (!asc) { batch.push(command); continue; }
+      if (batch.length) { await send(batch); batch = []; }
+      ascTouched = true;
+      await send([command]);
+      const resetKey = asc[3] && Awg.tokens(asc[3])[16] === Awg.zeroHeaderKey;
+      if (resetKey || asc[2] === 'no wireguard asc') {
+        const actual = parseInterfaces(await keen.runningConfig()).find(i => i.name === asc[1]);
+        if (!actual || (resetKey ? Awg.hasHeaderProtection(actual.ascLine) : Boolean(actual.ascLine))) {
+          throw new Error('Роутер не подтвердил сброс прежней защиты ASC; дальнейшее применение остановлено');
+        }
+      }
+    }
+    await send([...batch, 'system configuration save']);
+  } catch (error) {
+    const errors = [error.message];
+    if (ascTouched) {
+      const previous = parseInterfaces(ctx.lines).find(i => i.description === mapping.interface || (!i.description && i.name === mapping.interface));
+      if (previous?.ascLine) {
+        try { await send([`interface ${previous.name} wireguard asc ${previous.ascLine}`]); await send(['system configuration save']); }
+        catch { errors.push('Не удалось восстановить прежние параметры ASC. Проверьте настройки интерфейса'); }
+      }
+    }
+    return { ok: false, errors };
+  }
 
   let lines2;
   try { lines2 = await keen.runningConfig(); }

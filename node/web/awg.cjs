@@ -116,5 +116,19 @@
     return values;
   }
   const equal = (a, b) => JSON.stringify(normalized(a)) === JSON.stringify(normalized(b));
-  return { validate, parseFields, hasModern, build, tokens, equal };
+  const zeroHeaderKey = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+  const hasHeaderProtection = line => Boolean(normalized(line)[16]);
+  function protectionResetLine(current, desired) {
+    const before = tokens(current);
+    // Early 5.2 firmware cannot remove prefixes while a header key is set.
+    // Empty CLI arguments also retain some old settings. First send a real
+    // zero key with unchanged prefixes, then remove ASC, then set the profile.
+    // A serialized all-zero key still needs this reset when other fields change.
+    if (before.length !== 31 || !before[16] || before[16] === '0' || hasHeaderProtection(desired)) return null;
+    before[16] = zeroHeaderKey;
+    const line = before.map((value, i) => i >= 11 && i <= 16 ? JSON.stringify(value) : value).join(' ');
+    if (line.length > 8000) throw new Error('Параметры AmneziaWG слишком длинные для команды роутера');
+    return line;
+  }
+  return { validate, parseFields, hasModern, build, tokens, equal, zeroHeaderKey, hasHeaderProtection, protectionResetLine };
 });

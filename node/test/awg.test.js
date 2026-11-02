@@ -91,11 +91,74 @@ test('removing 3.1 fields in the panel explicitly clears them and is idempotent 
   assert.equal(computePlan({ ...ctx, lines: lines(line) }).mode, 'noop');
 });
 
+test('early firmware transitions from header protection to a plain profile through zero key and a verified ASC reset', async () => {
+  const protectedFields = { ...modern, S3: '24', S4: '40', HeaderProtectionKey: key, RandomTrailers: 'on' };
+  const ctx = context(modern, Awg.build(protectedFields, { modern: true }));
+  const plan = computePlan(ctx), calls = [];
+  assert.equal(plan.total, 3);
+  assert.equal(Awg.tokens(plan.commands[0].split(' wireguard asc ')[1])[16], Awg.zeroHeaderKey);
+  assert.equal(plan.commands[1], 'interface Wireguard1 no wireguard asc');
+  let current = Awg.build(protectedFields, { modern: true }), keyActive = true, keyConfigured = true;
+  ctx.keen = {
+    async rci(commands) {
+      calls.push(...commands);
+      for (const command of commands) {
+        if (command.endsWith(' no wireguard asc')) {
+          if (keyActive) return [{ status: 'error', message: 'unable to reset ASC parameters' }];
+          current = null; keyConfigured = false;
+        } else if (command.includes(' wireguard asc ')) {
+          const line = command.split(' wireguard asc ')[1], values = Awg.tokens(line);
+          if (values[16] === Awg.zeroHeaderKey) { keyActive = false; current = line; }
+          else if (keyConfigured && (values[9] === '0' || values[10] === '0')) return [{ status: 'error', message: 'invalid ASC parameters' }];
+          else current = line;
+        }
+      }
+      return [];
+    },
+    async runningConfig() { return current ? lines(current) : lines('').filter(l => !l.includes(' wireguard asc ')); },
+  };
+  const result = await applyPlan(ctx, plan);
+  assert.equal(result.ok, true); assert.equal(result.remaining, 0);
+  assert.equal(computePlan({ ...ctx, lines: lines(current) }).mode, 'noop');
+  assert.equal(calls.filter(c => c === 'system configuration save').length, 1);
+});
+
+test('an ignored protection reset stops the profile write and restores the previous ASC', async () => {
+  const initial = Awg.build({ ...modern, S3: '24', S4: '40', HeaderProtectionKey: key }, { modern: true });
+  const ctx = context(modern, initial), plan = computePlan(ctx), calls = [];
+  ctx.keen = { async rci(commands) { calls.push(...commands); return []; }, async runningConfig() { return lines(initial); } };
+  const result = await applyPlan(ctx, plan);
+  assert.equal(result.ok, false); assert.match(result.errors[0], /не подтвердил сброс/);
+  assert.ok(!calls.includes('interface Wireguard1 no wireguard asc'));
+  assert.ok(!calls.includes(plan.commands[2]));
+  assert.ok(calls.includes('interface Wireguard1 wireguard asc ' + initial));
+});
+
+test('ASC rejection never batches later routes or activation commands with the rejected write', async () => {
+  const ctx = context(modern, Awg.build(legacy, { extended: true })), plan = computePlan(ctx), calls = [];
+  plan.commands.push('ip route 192.0.2.1 Wireguard1 auto !AntiZapretAWG', 'interface Wireguard1 up');
+  let rejected = false;
+  ctx.keen = { async rci(commands) { calls.push(commands); if (!rejected && commands.some(c => c.includes(' wireguard asc '))) { rejected = true; return [{ status: 'error', message: 'invalid ASC parameters' }]; } return []; }, async runningConfig() { return ctx.lines; } };
+  const result = await applyPlan(ctx, plan);
+  assert.equal(result.ok, false); assert.match(result.errors[0], /invalid ASC/);
+  assert.equal(calls[0].length, 1);
+  assert.ok(!calls.flat().some(c => c.startsWith('ip route ') || c === 'interface Wireguard1 up'));
+});
+
+test('failed interface creation restores the old VPN without sending commands to a nonexistent new interface', async () => {
+  const ctx = context(); ctx.lines = ['interface Wireguard0', '    description OldVPN', '    up']; ctx.managedDescriptions = ['OldVPN', 'VPN'];
+  const plan = computePlan(ctx), calls = [];
+  ctx.keen = { async rci(commands) { calls.push(...commands); if (commands.some(c => c.includes(' wireguard asc '))) return [{ status: 'error', message: 'invalid ASC parameters' }]; return []; }, async runningConfig() { return ctx.lines; } };
+  const result = await applyPlan(ctx, plan);
+  assert.equal(result.ok, false); assert.ok(calls.includes('interface Wireguard0 up'));
+  assert.ok(!calls.includes('interface Wireguard1 down')); assert.ok(!calls.includes('interface Wireguard1 up'));
+});
+
 test('ASC writes are verified after applying, including a router that acknowledges but ignores the new fields', async () => {
   for (const ignored of [false, true]) {
     const ctx = context(modern, Awg.build(legacy, { extended: true }));
     const plan = computePlan(ctx); let actual = ctx.lines;
-    ctx.keen = { async rci(cmds) { if (!ignored) actual = lines(cmds.find(c => c.includes(' wireguard asc ')).split(' wireguard asc ')[1]); return []; }, async runningConfig() { return actual; } };
+    ctx.keen = { async rci(cmds) { const asc = cmds.find(c => c.includes(' wireguard asc ')); if (!ignored && asc) actual = lines(asc.split(' wireguard asc ')[1]); return []; }, async runningConfig() { return actual; } };
     const result = await applyPlan(ctx, plan);
     assert.equal(result.ok, !ignored); assert.equal(result.remaining, ignored ? 1 : 0);
     if (ignored) assert.match(result.errors[0], /ASC/);
@@ -104,7 +167,7 @@ test('ASC writes are verified after applying, including a router that acknowledg
 
 test('a lost readback does not report an unverified AWG 3.1 write as successful or replay it', async () => {
   const ctx = context(modern, Awg.build(legacy, { extended: true })); const plan = computePlan(ctx); let writes = 0;
-  ctx.keen = { async rci() { writes++; return []; }, async runningConfig() { throw new Error('socket hang up'); } };
+  ctx.keen = { async rci(cmds) { writes += cmds.filter(c => c.includes(' wireguard asc ')).length; return []; }, async runningConfig() { throw new Error('socket hang up'); } };
   const result = await applyPlan(ctx, plan);
   assert.equal(writes, 1); assert.equal(result.ok, false); assert.equal(result.verified, false);
   assert.match(result.errors[0], /проверку повторно/);
