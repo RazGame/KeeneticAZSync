@@ -77,14 +77,15 @@ export function startServer(configPath, port = 8787, host = '127.0.0.1') {
         if (!access.authenticate(req)) { sendJson(res, 401, { error: 'Требуется авторизация' }); return; }
       }
 
-      if (req.method === 'GET' && (p === '/' || p === '/index.html')) {
-        const html = fs.readFileSync(INDEX, 'utf8').replace(/\r\n?/g, '\n');
-        responseHeaders(res, html);
+      const publicConverter = p === '/converter' || p === '/converter/';
+      if (req.method === 'GET' && (p === '/' || p === '/index.html' || publicConverter)) {
+        const html = fs.readFileSync(publicConverter ? path.join(DIR, '..', 'web', 'converter.html') : INDEX, 'utf8').replace(/\r\n?/g, '\n');
+        responseHeaders(res, html, { offline: publicConverter });
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(html);
         return;
       }
-      if (req.method === 'GET' && ['/mappings.js', '/mappings.css', '/sync.js', '/sync.css', '/speed.js', '/traffic.js', '/traffic.css', '/design.css', '/theme.js', '/theme.css', '/order.js', '/awg.js'].includes(p)) {
+      if (req.method === 'GET' && ['/app.css', '/converter.js', '/converter.css', '/mappings.js', '/mappings.css', '/sync.js', '/sync.css', '/speed.js', '/traffic.js', '/traffic.css', '/design.css', '/theme.js', '/theme.css', '/order.js', '/awg.js'].includes(p)) {
         res.writeHead(200, { 'Content-Type': p.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8', 'Cache-Control': 'no-cache' });
         res.end(fs.readFileSync(path.join(DIR, '..', 'web', p === '/order.js' ? 'order.cjs' : p === '/awg.js' ? 'awg.cjs' : p.slice(1)))); return;
       }

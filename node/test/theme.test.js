@@ -22,7 +22,7 @@ function fixture(saved = null, dark = false, blocked = false) {
   return { root, media, pickers, storage, events, documentEvents, initial, localStorage };
 }
 test('saved theme is applied before styles without a light flash; invalid or blocked storage follows the system', () => {
-  assert.ok(html.indexOf('id="themeBoot"') < html.indexOf('<style>'));
+  assert.ok(html.indexOf('id="themeBoot"') < html.indexOf('rel="stylesheet"'));
   for (const [saved, dark, expected] of [['dark', false, 'dark'], ['light', true, 'light'], [null, true, 'dark'], ['invalid', true, 'dark']]) {
     const f = fixture(saved, dark); assert.equal(f.initial, expected); assert.equal(f.root.dataset.theme, expected);
   }

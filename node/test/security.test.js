@@ -95,6 +95,36 @@ test('HTTP login authenticates cookie sessions and logout revokes them', async t
   assert.equal((await fetch(a.base + '/api/config', { headers: { Cookie: cookie } })).status, 401);
 });
 
+test('public converter works without authentication while every administrative API stays protected', async t => {
+  const original = [process.env.BASIC_AUTH_USER, process.env.BASIC_AUTH_PASS];
+  process.env.BASIC_AUTH_USER = 'converter-test'; process.env.BASIC_AUTH_PASS = 'private-test-password';
+  t.after(() => { ['BASIC_AUTH_USER', 'BASIC_AUTH_PASS'].forEach((key, i) => { if (original[i] === undefined) delete process.env[key]; else process.env[key] = original[i]; }); });
+  const a = await app(t), before = fs.readFileSync(a.file, 'utf8');
+  for (const route of ['/converter', '/converter/']) {
+    const response = await fetch(a.base + route), html = await response.text();
+    assert.equal(response.status, 200);
+    assert.match(html, /id="cvFile"/); assert.match(html, /href="\/"/);
+    assert.doesNotMatch(html, /loginForm|\/api\/|mappings\.js|sync\.js|panel-secret|router-secret/);
+    assert.match(response.headers.get('content-security-policy'), /connect-src 'none'/);
+    assert.match(response.headers.get('content-security-policy'), /form-action 'none'/);
+    for (const match of html.matchAll(/(?:src|href)="(\/[^"#]+\.(?:js|css))"/g)) {
+      assert.equal((await fetch(a.base + match[1])).status, 200, match[1]);
+    }
+    for (const match of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)) if (match[1].trim()) {
+      assert.ok(response.headers.get('content-security-policy').includes(createHash('sha256').update(match[1]).digest('base64')));
+    }
+  }
+  for (const route of ['/api/config', '/api/export', '/api/mappings', '/api/router-status?router=R', '/api/speed-test']) {
+    assert.equal((await fetch(a.base + route)).status, 401, route);
+  }
+  for (const route of ['/api/plan', '/api/apply', '/api/import', '/api/config', '/api/panel-client-create']) {
+    assert.equal((await fetch(a.base + route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401, route);
+  }
+  assert.equal((await fetch(a.base + '/converter/config.yaml')).status, 404);
+  assert.equal((await a.get('/api/config')).status, 200);
+  assert.equal(fs.readFileSync(a.file, 'utf8'), before);
+});
+
 test('panel creation is serialized and configuration cannot change while device work is in flight', async t => {
   const a = await app(t);
   let release, entered;

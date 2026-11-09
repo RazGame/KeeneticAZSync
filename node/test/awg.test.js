@@ -201,7 +201,8 @@ test('the browser converter produces the full AWG 3.1 command and rejects unsafe
   assert.equal(scope.Awg.build(scope.Awg.parseFields(text()), { extended: true, modern: true }), Awg.build(modern, { modern: true }));
   const html = fs.readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
   assert.ok(html.includes('<script src="/awg.js"></script>'));
-  const converter = html.split('/* CONVERTER — обработка целиком в браузере. */')[1].split('async function loadCfg()')[0];
+  assert.ok(html.includes('<script src="/converter.js"></script>'));
+  const converter = fs.readFileSync(new URL('../web/converter.js', import.meta.url), 'utf8');
   vm.runInContext(converter, scope);
   const select = source => element('cvFile').listeners.change({ target: { files: [{ name: 'client.conf', text: async () => source }] } });
   await select(text());

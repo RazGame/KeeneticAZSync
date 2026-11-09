@@ -92,14 +92,14 @@ export function createAccessPolicy(host, { username = process.env.BASIC_AUTH_USE
   return { required, authenticate, issueSession, logout };
 }
 
-export function responseHeaders(res, html = null) {
+export function responseHeaders(res, html = null, { offline = false } = {}) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   if (html !== null) {
     const hashes = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].filter(m => m[1].trim()).map(m => `'sha256-${createHash('sha256').update(m[1]).digest('base64')}'`);
-    res.setHeader('Content-Security-Policy', `default-src 'none'; script-src 'self' ${hashes.join(' ')}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; object-src 'none'`);
+    res.setHeader('Content-Security-Policy', `default-src 'none'; script-src 'self' ${hashes.join(' ')}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src ${offline ? "'none'" : "'self'"}; base-uri 'none'; frame-ancestors 'none'; form-action ${offline ? "'none'" : "'self'"}; object-src 'none'`);
   }
 }
 

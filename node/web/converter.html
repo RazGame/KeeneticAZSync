@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Конвертер AmneziaWG для Keenetic и Netcraze. Конфигурация, маршруты и команда ASC — без регистрации, с обработкой на вашем устройстве.">
+<title>Конвертер AmneziaWG — Keenetic AZ Sync</title>
+<script id="themeBoot">
+(() => {
+  let preference = 'auto';
+  try { const saved = localStorage.getItem('awg_sync_theme'); if (['auto', 'light', 'dark'].includes(saved)) preference = saved; } catch {}
+  document.documentElement.dataset.themePreference = preference;
+  document.documentElement.dataset.theme = preference === 'auto' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : preference;
+})();
+</script>
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/design.css">
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/converter.css">
+</head>
+<body class="public-converter">
+<header class="header">
+  <a class="logo" href="/converter">Keenetic <span>AZ Sync</span></a>
+  <div class="status-bar"><details class="theme-menu" data-theme-picker>
+      <summary aria-label="Цветовая тема"><svg class="theme-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg><svg class="theme-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z"/></svg><span class="theme-label">Тема</span></summary>
+      <div class="theme-options" role="group" aria-label="Выбор темы"><button type="button" data-theme-option="auto" aria-pressed="true">Как на устройстве</button><button type="button" data-theme-option="light" aria-pressed="false">Светлая</button><button type="button" data-theme-option="dark" aria-pressed="false">Тёмная</button></div>
+    </details><a class="panel-link" href="/">Вход в панель</a></div>
+</header>
+<main class="public-content">
+  <div class="pagebar"><h1>Конвертер</h1><p>Подготовка конфигурации AmneziaWG для Keenetic / Netcraze</p></div>
+<section id="tab-convert" class="section show">
+        <div class="config-grid card-grid">
+          <article class="config-card">
+            <header><span class="access-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h4"/></svg></span><div><h2>Исходный файл</h2><p>Выберите конфигурацию AmneziaWG для преобразования.</p></div></header>
+            <div class="config-form">
+              <label class="config-file-picker"><input type="file" id="cvFile" accept=".conf,.txt,text/plain" aria-label="Конфигурация AmneziaWG"><span><strong id="cvFileName">Выберите конфигурацию AmneziaWG</strong><small>Файл .conf или .txt</small></span><span class="config-file-action">Выбрать файл</span></label>
+              <p class="config-hint">Файл обрабатывается в браузере и остаётся на вашем устройстве.</p>
+              <div id="cvStatusPanel" class="converter-status" hidden><div id="cvStatus" role="status" aria-live="polite"></div></div>
+              <details class="converter-help"><summary>Что делает конвертер</summary><ul><li>Добавляет <code>77.88.8.8/32</code> в AllowedIPs.</li><li>Готовит <code>routes.bat</code> с маршрутами, включая <code>14.16.0.0/14</code> и DNS-маршрут.</li><li>Собирает короткую команду ASC, если в файле заданы параметры AmneziaWG.</li></ul></details>
+            </div>
+          </article>
+          <article class="config-card">
+            <header><span class="access-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4"/></svg></span><div><h2>Готовые файлы</h2><p>Скачайте результат и используйте его для настройки роутера.</p></div></header>
+            <div id="cvEmpty" class="converter-empty"><strong>Здесь появится результат</strong><p>Выберите исходный файл, чтобы получить конфигурацию, маршруты и команду ASC.</p></div>
+            <div id="cvResults" hidden>
+              <div class="converter-downloads">
+                <div class="converter-download"><strong>Конфигурация .conf</strong><p>Обновлённый список AllowedIPs.</p><button class="primary" id="cvDlConf" disabled>Скачать .conf</button></div>
+                <div class="converter-download"><strong>Маршруты .bat</strong><p>Команды добавления маршрутов.</p><button id="cvDlBat" disabled>Скачать routes.bat</button></div>
+              </div>
+              <div id="cvAscPanel" class="converter-asc" hidden>
+                <label class="access-field" for="cvAsc">Команда ASC</label><p id="cvAscHint" class="config-hint">Для интерфейса Wireguard0.</p>
+                <div class="converter-copy"><input id="cvAsc" readonly><button class="sm" id="cvCopyAsc">Копировать</button></div>
+              </div>
+            </div>
+          </article>
+        </div>
+        <div id="cvPrevPanel" class="converter-previews" hidden>
+          <details><summary>Предпросмотр конфигурации (.conf)</summary><textarea id="cvConf" rows="8" readonly aria-label="Предпросмотр конфигурации"></textarea></details>
+          <details><summary>Предпросмотр маршрутов (routes.bat)</summary><textarea id="cvRoutes" rows="8" readonly aria-label="Предпросмотр маршрутов"></textarea></details>
+        </div>
+      </section>
+</main>
+<script src="/theme.js"></script>
+<script src="/awg.js"></script>
+<script src="/converter.js"></script>
+</body>
+</html>
