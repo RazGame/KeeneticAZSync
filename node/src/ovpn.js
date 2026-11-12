@@ -6,9 +6,14 @@ export function validateOvpn(text, checkHooks = false) {
   for (const line of String(text).split(/\r?\n/)) {
     if (/^\s*[#;]/.test(line)) continue;
     const opaque = stack.some(name => name !== 'connection');
-    if (checkHooks && !opaque) {
-      const directive = line.trim().split(/\s+/)[0].replace(/^--/, '').toLowerCase();
-      if (['up', 'down', 'route-up', 'route-pre-down', 'ipchange', 'plugin', 'tls-verify', 'auth-user-pass-verify', 'client-connect', 'client-disconnect', 'learn-address', 'config', 'management', 'cd', 'chroot'].includes(directive)
+    if (checkHooks && !opaque && line.trim() && !line.trim().startsWith('<')) {
+      // OpenVPN tokenizes quotes and escapes before interpreting an option.
+      // Require a plain option name so quoting cannot hide a forbidden hook;
+      // quoted values (remote names, paths inside inline data) are unaffected.
+      const option = line.trim().match(/^(?:--)?([a-z][a-z0-9-]*)(?=\s|$)/i);
+      if (!option) throw new Error('Недопустимый синтаксис директивы OpenVPN');
+      const directive = option[1].toLowerCase();
+      if (['up', 'down', 'route-up', 'route-pre-down', 'ipchange', 'plugin', 'tls-verify', 'auth-user-pass-verify', 'client-connect', 'client-disconnect', 'learn-address', 'config', 'management', 'cd', 'chroot', 'iproute', 'tls-crypt-v2-verify', 'client-crresponse'].includes(directive)
           || (directive === 'script-security' && !/^\s*(?:--)?script-security\s+[01]\s*(?:[#;].*)?$/.test(line))) throw new Error('OpenVPN-конфигурация содержит недопустимый скрипт или внешний файл');
     }
     for (const tag of line.matchAll(/<(\/?)([a-z0-9-]+)>/gi)) {

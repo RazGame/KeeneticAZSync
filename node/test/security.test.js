@@ -286,6 +286,13 @@ test('CIDR, router command values and malformed OpenVPN blocks fail closed witho
   assert.throws(() => validateOvpn('client\n--up /tmp/hook\n', true), /недопустимый/);
 });
 
+test('OpenVPN quoted option names and alternate command hooks cannot bypass profile validation', () => {
+  for(const directive of ['"up" /tmp/audit-marker', "'up' /tmp/audit-marker", 'u\\p /tmp/audit-marker', '"script-security" 2', 'iproute /tmp/audit-marker', '--tls-crypt-v2-verify /tmp/audit-marker', 'client-crresponse /tmp/audit-marker']) {
+    assert.throws(()=>validateOvpn('client\n'+directive+'\n',true));
+  }
+  assert.doesNotThrow(()=>validateOvpn('client\nremote "vpn.example.com" 1194 udp\nscript-security 1\n<key>\nopaque-key-data\n</key>\n',true));
+});
+
 test('asynchronous encrypted backups preserve v1 compatibility and reject tampering', async () => {
   const text = dumpConfig(cfg()), password = 'backup-pass';
   const modern = await encryptAsync(text, password);
