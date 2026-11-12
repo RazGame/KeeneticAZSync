@@ -30,6 +30,7 @@ jobs:
           node-version: '24'
           package-manager-cache: false
       - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm test
       - name: Check public source package
         run: python ../scripts/prepare-release.py --check
@@ -84,6 +85,7 @@ jobs:
           context: node
           platforms: linux/amd64,linux/arm64
           push: true
+          pull: true
           tags: |
             ${{ steps.image.outputs.name }}:latest
             ${{ steps.image.outputs.name }}:sha-${{ github.sha }}

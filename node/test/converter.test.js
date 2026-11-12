@@ -48,3 +48,26 @@ test('oversized or invalid files clear old secrets/results, and stale reads cann
   assert.equal(c.element('cvConf').value, ''); assert.equal(c.element('cvDlBat').disabled, true);
   assert.equal(c.element('cvStatusPanel').dataset.state, 'error');
 });
+
+test('untrusted profiles cannot inject batch commands through Address, AllowedIPs or script hooks', async () => {
+  const c=converter();
+  for(const bad of [
+    profile.replace('10.0.0.2/32','10.0.0.2&echo AUDIT_MARKER/32'),
+    profile.replace('14.16.0.0/14','14.16.0.0&echo AUDIT_MARKER/14'),
+    profile.replace('14.16.0.0/14','14.16.0.0 %AUDIT_MARKER%/14'),
+    profile.replace('10.0.0.2/32','999.0.0.2/32'),
+    profile.replace('10.0.0.2/32','010.0.0.2/32'),
+    profile.replace('[Peer]','PostUp = echo AUDIT_MARKER\n[Peer]'),
+    profile.replace('[Peer]','PreDown = echo AUDIT_MARKER\n[Peer]'),
+  ]){
+    await c.select({name:'untrusted.conf',text:async()=>bad});
+    assert.equal(c.element('cvDlBat').disabled,true);
+    assert.equal(c.element('cvDlConf').disabled,true);
+    assert.equal(c.element('cvResults').hidden,true);
+    assert.equal(c.element('cvRoutes').value,'');
+    assert.equal(c.element('cvConf').value,'');
+    assert.equal(c.element('cvStatusPanel').dataset.state,'error');
+  }
+  await c.select({name:'valid.conf',text:async()=>profile});
+  assert.equal(c.element('cvDlBat').disabled,false,'valid profiles still work after a rejected file');
+});

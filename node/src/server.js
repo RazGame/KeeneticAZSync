@@ -64,7 +64,7 @@ export function startServer(configPath, port = 8787, host = '127.0.0.1') {
       if (p.startsWith('/api/')) {
         checkRequestOrigin(req);
         if (req.method === 'GET' && p === '/api/session') {
-          sendJson(res, 200, { authenticated: access.authenticate(req, true, false), authRequired: access.required }); return;
+          sendJson(res, 200, { authenticated: access.authenticate(req), authRequired: access.required }); return;
         }
         if (req.method === 'POST' && p === '/api/logout') {
           await readBody(req, 4096); access.logout(req, res); sendJson(res, 200, { ok: true }); return;
@@ -447,7 +447,10 @@ export function startServer(configPath, port = 8787, host = '127.0.0.1') {
 
       res.writeHead(404); res.end('not found');
     } catch (e) {
-      if (!res.headersSent && !res.destroyed) sendJson(res, e.status || 500, { error: safeMessage(e.message) });
+      if (!res.headersSent && !res.destroyed) {
+        if (e.status === 429 && Number.isInteger(e.retryAfter)) res.setHeader('Retry-After', String(e.retryAfter));
+        sendJson(res, e.status || 500, { error: safeMessage(e.message) });
+      }
     }
   });
 

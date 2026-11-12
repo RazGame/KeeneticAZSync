@@ -6,6 +6,9 @@ LABEL org.opencontainers.image.source="https://github.com/RazGame/KeeneticAZSync
 
 WORKDIR /app
 
+# Refresh distribution security fixes even when the Node base image lags apk.
+RUN apk upgrade --no-cache
+
 # Copy dependency definition
 COPY package*.json ./
 

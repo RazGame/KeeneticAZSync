@@ -67,13 +67,40 @@ test('sessions use opaque secure HttpOnly cookies, expire/revoke and accept pass
   assert.equal(policy.authenticate(req), false);
 });
 
-test('failed login attempts are bounded without locking out a correct credential', () => {
-  const policy = createAccessPolicy('0.0.0.0', { username: 'U', password: 'correct' });
-  const req = { headers: { host: 'localhost' }, socket: { remoteAddress: '192.0.2.10' } };
-  for (let i = 0; i < 20; i++) assert.equal(policy.authenticate(req), false);
-  assert.throws(() => policy.authenticate(req), { status: 429 });
+test('login budget is enforced before password comparison on every path, while valid sessions remain usable', () => {
+  let clock = 1000;
+  const policy = createAccessPolicy('0.0.0.0', { username: 'U', password: 'correct', now: () => clock });
+  const req = { headers: { host: 'localhost', authorization: 'Basic ' + Buffer.from('U:wrong').toString('base64') }, socket: { remoteAddress: '192.0.2.10' } };
+  let cookie;policy.issueSession(req, { setHeader(k,v) { cookie = v.split(';')[0]; } });
+  for (let i = 0; i < 20; i++) assert.equal(policy.authenticate(req, true, false), false);
+  assert.throws(() => policy.authenticate(req, true, false), { status: 429, retryAfter: 60 });
+  req.headers.authorization = 'Basic ' + Buffer.from('U:correct').toString('base64');
+  assert.throws(() => policy.authenticate(req, false), { status: 429 });
+  delete req.headers.authorization;
+  assert.equal(policy.authenticate(req, true, false), false, 'anonymous session discovery still works');
+  req.headers.cookie = cookie;assert.equal(policy.authenticate(req), true);
+  delete req.headers.cookie;clock += 60000;
   req.headers.authorization = 'Basic ' + Buffer.from('U:correct').toString('base64');
   assert.equal(policy.authenticate(req), true);
+});
+
+test('HTTP session discovery cannot be used as an unthrottled password oracle', async t => {
+  const original = [process.env.BASIC_AUTH_USER, process.env.BASIC_AUTH_PASS];
+  process.env.BASIC_AUTH_USER = 'rate-test'; process.env.BASIC_AUTH_PASS = 'correct-test-password';
+  t.after(() => { ['BASIC_AUTH_USER', 'BASIC_AUTH_PASS'].forEach((key,i) => { if(original[i]===undefined)delete process.env[key];else process.env[key]=original[i]; }); });
+  const a = await app(t);
+  const wrong = { Authorization: 'Basic ' + Buffer.from('rate-test:wrong').toString('base64') };
+  for(let i=0;i<20;i++){
+    const r=await fetch(a.base+'/api/session',{headers:wrong});
+    assert.equal(r.status,200);assert.equal((await r.json()).authenticated,false);
+  }
+  const denied=await fetch(a.base+'/api/session',{headers:wrong});
+  assert.equal(denied.status,429);assert.ok(Number(denied.headers.get('retry-after'))>0);
+  assert.equal((await fetch(a.base+'/api/session',{headers:a.headers})).status,429);
+  assert.equal((await fetch(a.base+'/api/login',{method:'POST',headers:a.headers,body:'{}'})).status,429);
+  assert.equal((await fetch(a.base+'/converter')).status,200);
+  assert.equal((await fetch(a.base+'/api/session')).status,200);
+  assert.equal((await fetch(a.base+'/api/config')).status,401,'anonymous API reads do not consume or depend on the password budget');
 });
 
 test('HTTP login authenticates cookie sessions and logout revokes them', async t => {

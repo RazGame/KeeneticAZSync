@@ -48,7 +48,7 @@ export function createAccessPolicy(host, { username = process.env.BASIC_AUTH_USE
   const failures = new Map(), sessions = new Map(), ttl = 12 * 60 * 60 * 1000;
   function prune() {
     const time = now();
-    for (const [key, entry] of failures) if (entry.until < time) failures.delete(key);
+    for (const [key, entry] of failures) if (entry.until <= time) failures.delete(key);
     for (const [key, expiry] of sessions) if (expiry < time) sessions.delete(key);
   }
   function basic(req) {
@@ -57,7 +57,7 @@ export function createAccessPolicy(host, { username = process.env.BASIC_AUTH_USE
     return timingSafeEqual(digest(Buffer.from(match[1], 'base64')), expected);
   }
   function cookie(req) { return (req.headers.cookie || '').split(';').map(v => v.trim()).find(v => v.startsWith(SESSION_COOKIE + '='))?.slice(SESSION_COOKIE.length + 1); }
-  function authenticate(req, allowSession = true, countFailure = true) {
+  function authenticate(req, allowSession = true) {
     if (!required) {
       // Host restriction also prevents DNS rebinding against a local unprotected instance.
       let hostname;
@@ -65,15 +65,19 @@ export function createAccessPolicy(host, { username = process.env.BASIC_AUTH_USE
       return ['127.0.0.1', '::1', 'localhost'].includes(hostname) && (!req.socket?.remoteAddress || ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress));
     }
     prune();
-    if (basic(req)) { failures.delete(req.socket?.remoteAddress); return true; }
     if (allowSession && (sessions.get(cookie(req)) || 0) > now()) return true;
-    if (!countFailure) return false;
+    // Session discovery without credentials is harmless. Supplied credentials
+    // must share the login budget, even on /api/session or read-only routes.
+    if (!req.headers.authorization) return false;
     const key = req.socket?.remoteAddress || 'unknown';
     const entry = failures.get(key) || { count: 0, until: now() + 60000 };
+    // Check the budget before comparing the password. Otherwise a correct
+    // guess remains distinguishable from a 429 and defeats the rate limit.
+    if (entry.count >= 20) throw Object.assign(httpError(429, 'Слишком много попыток входа. Повторите через минуту'), { retryAfter: Math.max(1, Math.ceil((entry.until - now()) / 1000)) });
+    if (basic(req)) { failures.delete(key); return true; }
     entry.count++;
     if (failures.size >= 1024 && !failures.has(key)) failures.delete(failures.keys().next().value);
     failures.set(key, entry);
-    if (entry.count > 20) throw httpError(429, 'Слишком много попыток входа. Повторите через минуту');
     return false;
   }
   const secure = req => req.socket?.encrypted || req.headers.origin?.startsWith('https://');
