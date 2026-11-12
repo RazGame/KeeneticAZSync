@@ -31,7 +31,8 @@
 <link rel="stylesheet" href="/theme.css">
 </head>
 <body>
-<div id="appContainer">
+<div id="authPending" role="status" aria-live="polite"><div class="auth-pending-brand">Keenetic <span>AZ Sync</span></div><p>Проверяем вход…</p></div>
+<div id="appContainer" hidden>
 <header class="header">
   <div class="logo">Keenetic <span>AZ Sync</span></div>
   <div class="status-bar">
@@ -222,7 +223,7 @@
 </div>
 </div> <!-- /appContainer -->
 
-<div id="loginScreen" style="display: none; align-items: center; justify-content: center; background: var(--bg); padding: 20px;">
+<div id="loginScreen" hidden>
   <details class="theme-menu login-theme-picker" data-theme-picker><summary aria-label="Цветовая тема"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z"/></svg><span class="theme-label">Тема</span></summary><div class="theme-options" role="group" aria-label="Выбор темы"><button type="button" data-theme-option="auto" aria-pressed="true">Как на устройстве</button><button type="button" data-theme-option="light" aria-pressed="false">Светлая</button><button type="button" data-theme-option="dark" aria-pressed="false">Тёмная</button></div></details>
   <div class="panel" style="width: 100%; max-width: 400px; padding: 30px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin: auto;">
     <div style="font-size: 24px; font-weight: 800; text-align: center; margin-bottom: 8px; color: var(--accent);">Keenetic <span style="color: var(--text); font-weight: 300;">AZ Sync</span></div>
@@ -266,20 +267,22 @@ try { localStorage.removeItem('awg_sync_auth'); } catch {}
 
 function toast(msg,err){const t=$('#toast');t.textContent=msg;t.style.borderColor=err?'#5a2730':'var(--line)';t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2300);}
 
+function setAuthView(visibleId) {
+  for (const id of ['authPending', 'appContainer', 'loginScreen']) $("#" + id).hidden = id !== visibleId;
+}
+
 function showLoginScreen() {
   AUTHENTICATED=false;
   stopSyncStatus();
   stopTrafficMonitor();
   clearTrafficHistory();
-  $('#appContainer').style.display = 'none';
-  $('#loginScreen').style.display = 'flex';
+  setAuthView('loginScreen');
   $('#loginPass').value = '';
   $('#loginError').style.display = 'none';
 }
 
 function hideLoginScreen() {
-  $('#appContainer').style.display = 'block';
-  $('#loginScreen').style.display = 'none';
+  setAuthView('appContainer');
   updateLogoutButtonVisibility();
 }
 
